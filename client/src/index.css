@@ -1,0 +1,46 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
+@import "tailwindcss";
+
+:root {
+  /* THE MASTER LINE: Change these to re-theme the app */
+  --primary: 37 99 235;      /* Blue-600 */
+  --primary-dark: 29 78 216; /* Blue-700 */
+  
+  --bg-light: 248 250 252;   /* Slate-50 */
+  --bg-dark: 15 23 42;       /* Slate-900 */
+  
+  /* NEW GLOBAL FONT */
+  font-family: 'Outfit', sans-serif;
+}
+
+@theme {
+  --color-primary: rgb(var(--primary));
+  --color-primary-dark: rgb(var(--primary-dark));
+  --color-bg-app: rgb(var(--bg-light));
+  --color-bg-app-dark: rgb(var(--bg-dark));
+  
+  /* Add custom text sizes for dense mobile UI */
+  --text-xxs: 0.65rem;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 4px; /* Thinner for mobile */
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 10px;
+}
+
+/* Base styles adjustments */
+body {
+  transition: background-color 0.3s ease, color 0.3s ease;
+  -webkit-tap-highlight-color: transparent; /* Removes tap flash on mobile */
+}
+
+input, textarea {
+  font-family: 'Outfit', sans-serif; /* Ensure inputs inherit font */
+}
