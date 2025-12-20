@@ -13,12 +13,17 @@ const messageSchema = new mongoose.Schema({
   },
   content: { 
     type: String, 
-    required: true 
   },
   messageType: {
     type: String,
     enum: ['text', 'file', 'agreement_proposal'], // <--- Future Proofing
     default: 'text'
+  },
+  fileData: {
+    url: String,
+    name: String,
+    mimeType: String,
+    size: Number
   },
   timestamp: { 
     type: Date, 

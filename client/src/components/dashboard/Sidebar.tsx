@@ -1,6 +1,8 @@
-import { motion } from 'framer-motion';
-import { Search, FileText, Sun, Moon, Loader2, MessageSquare } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, FileText, Settings, LogOut, Moon, Sun, Clock, Loader2, MessageSquare } from 'lucide-react';
 import { useAppStore } from '../../store';
+import { api } from '../../lib/api'; // Ensure you have this for logout API call
 
 interface Contact {
   id: string;
@@ -25,9 +27,47 @@ export default function Sidebar({
   searchQuery, setSearchQuery, isSearching 
 }: SidebarProps) {
   
-  const { currentUser, selectedChatUser, setSelectedChatUser, theme, toggleTheme } = useAppStore();
+  const { 
+    currentUser, selectedChatUser, setSelectedChatUser, 
+    theme, toggleTheme, timeFormat, toggleTimeFormat, logout 
+  } = useAppStore();
+  
   const isDark = theme === 'dark';
   const displayContacts = searchQuery ? searchResults : recentContacts;
+  
+  // Settings Menu State
+  const [showSettings, setShowSettings] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  // Close settings if clicked outside
+  useEffect(() => {
+    function handleClickOutside(event: any) {
+        if (settingsRef.current && !settingsRef.current.contains(event.target)) {
+            setShowSettings(false);
+        }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Helper to format time for the list (Respects 12h/24h)
+  const formatTime = (dateString: string) => {
+    return new Date(dateString).toLocaleTimeString([], {
+      hour: '2-digit', 
+      minute: '2-digit', 
+      hour12: timeFormat === '12h'
+    });
+  };
+
+  const handleLogout = async () => {
+    try {
+        await api.post('/auth/logout'); // Optional: Clear cookie on server
+    } catch(e) { 
+        console.log("Logout cleanup failed", e); 
+    } finally {
+        logout(); // Clear client state
+    }
+  };
 
   return (
     <aside className={`flex flex-col border-r transition-all duration-300 z-20
@@ -103,7 +143,7 @@ export default function Sidebar({
                    <span className={`font-semibold text-sm md:text-base truncate ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>{user.name}</span>
                    {user.lastMessageTime && (
                      <span className="text-[10px] opacity-40">
-                       {new Date(user.lastMessageTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                       {formatTime(user.lastMessageTime)}
                      </span>
                    )}
                  </div>
@@ -116,10 +156,63 @@ export default function Sidebar({
          })}
       </div>
       
-      {/* Footer */}
-      <div className={`p-3 md:p-4 border-t flex items-center justify-between ${isDark ? 'border-slate-800 bg-slate-900/30' : 'border-slate-200 bg-slate-50'}`}>
+      {/* Footer (With Settings Menu) */}
+      <div className={`p-3 md:p-4 border-t flex items-center justify-between relative ${isDark ? 'border-slate-800 bg-slate-900/30' : 'border-slate-200 bg-slate-50'}`}>
+           
+           {/* Settings Popover */}
+           <AnimatePresence>
+             {showSettings && (
+               <motion.div 
+                 ref={settingsRef}
+                 initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                 animate={{ opacity: 1, y: -50, scale: 1 }} // Moved up to float above footer
+                 exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                 className={`absolute bottom-full right-4 w-56 mb-2 rounded-2xl shadow-2xl border backdrop-blur-xl overflow-hidden z-50
+                    ${isDark ? 'bg-slate-800/90 border-slate-700' : 'bg-white/90 border-slate-200'}
+                 `}
+               >
+                 <div className="p-2 space-y-1">
+                    {/* Theme Toggle */}
+                    <button 
+                      onClick={toggleTheme}
+                      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-colors text-sm font-medium
+                        ${isDark ? 'hover:bg-white/10 text-slate-200' : 'hover:bg-slate-100 text-slate-700'}
+                      `}
+                    >
+                      <span className="flex items-center gap-3">{isDark ? <Moon size={16}/> : <Sun size={16}/> } Theme</span>
+                      <span className="text-xs opacity-50 uppercase">{theme}</span>
+                    </button>
+
+                    {/* Time Format Toggle */}
+                    <button 
+                      onClick={toggleTimeFormat}
+                      className={`w-full flex items-center justify-between px-4 py-3 rounded-xl transition-colors text-sm font-medium
+                        ${isDark ? 'hover:bg-white/10 text-slate-200' : 'hover:bg-slate-100 text-slate-700'}
+                      `}
+                    >
+                      <span className="flex items-center gap-3"><Clock size={16}/> Time Format</span>
+                      <span className="text-xs opacity-50">{timeFormat}</span>
+                    </button>
+
+                    <div className={`h-px my-1 ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
+
+                    {/* Logout */}
+                    <button 
+                      onClick={handleLogout}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors text-sm font-medium text-red-500
+                        ${isDark ? 'hover:bg-red-500/10' : 'hover:bg-red-50'}
+                      `}
+                    >
+                      <LogOut size={16}/> Log Out
+                    </button>
+                 </div>
+               </motion.div>
+             )}
+           </AnimatePresence>
+
+           {/* User Profile */}
            <div className="flex items-center gap-2 md:gap-3">
-             <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-slate-700 flex items-center justify-center text-[10px] md:text-xs text-white">
+             <div className="w-8 h-8 md:w-9 md:h-9 rounded-full bg-slate-700 flex items-center justify-center text-[10px] md:text-xs text-white shadow-md">
                {currentUser?.name[0]}
              </div>
              <div className="text-xs">
@@ -127,8 +220,15 @@ export default function Sidebar({
                <div className="text-emerald-500">Connected</div>
              </div>
            </div>
-           <button onClick={toggleTheme} className="p-2 rounded-full hover:bg-black/5 dark:hover:bg-white/10 transition">
-              {isDark ? <Sun size={16} /> : <Moon size={16} />}
+
+           {/* Settings Trigger Button */}
+           <button 
+             onClick={() => setShowSettings(!showSettings)}
+             className={`p-2.5 rounded-xl transition-all active:scale-95
+               ${showSettings ? 'bg-primary text-white shadow-lg shadow-primary/30' : (isDark ? 'hover:bg-white/10 text-slate-400' : 'hover:bg-slate-200 text-slate-500')}
+             `}
+           >
+              <Settings size={20} />
            </button>
       </div>
     </aside>

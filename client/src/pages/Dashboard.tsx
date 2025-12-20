@@ -493,14 +493,28 @@ import Sidebar from '../components/dashboard/Sidebar';
 import ChatArea from '../components/dashboard/ChatArea';
 import AgreementDrawer from '../components/dashboard/AgreementDrawer';
 
+// ... (Interfaces are correct in your uploaded file) ...
+// Ensure you keep interfaces FileData, Message, Contact, PendingMessage
+
+interface FileData {
+  url?: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  localFile?: File; 
+}
+
 interface Message {
   _id?: string;
   tempId?: string;
   sender: string;
   content: string;
+  messageType?: 'text' | 'file';
+  fileData?: FileData;
   timestamp: string;
   isSelf: boolean;
-  status?: 'pending' | 'sent';
+  status?: 'pending' | 'sent' | 'uploading' | 'failed';
+  uploadProgress?: number;
 }
 
 interface Contact {
@@ -530,9 +544,19 @@ export default function Dashboard() {
   const [isSearching, setIsSearching] = useState(false);
   const [inputMsg, setInputMsg] = useState('');
 
-  const isProcessingQueue = useRef(false);
+  // --- PAGINATION STATES ---
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
-  // --- QUEUE HELPERS ---
+  const isProcessingQueue = useRef(false);
+  const uploadControllers = useRef<Record<string, AbortController>>({});
+  const activeChatIdRef = useRef<string | undefined>(undefined);
+  
+  useEffect(() => {
+    activeChatIdRef.current = selectedChatUser?.id;
+  }, [selectedChatUser]);
+
+  // ... (getQueue, saveQueue, processQueue - Keep exact logic from your file) ...
   const getQueue = useCallback((): PendingMessage[] => {
     try {
         const raw = localStorage.getItem('s_queue');
@@ -545,17 +569,12 @@ export default function Dashboard() {
     localStorage.setItem('s_queue', btoa(JSON.stringify(queue)));
   }, []);
 
-  // --- QUEUE PROCESSOR ---
   const processQueue = useCallback(async (): Promise<void> => {
     if (!currentUser || isProcessingQueue.current) return;
-    
     const queue = getQueue();
     if (queue.length === 0) return;
 
     isProcessingQueue.current = true;
-    console.log(`🔄 Processing Queue: ${queue.length} messages...`);
-    
-    // Optimistically clear, but we will add back failures
     saveQueue([]); 
     const failedItems: PendingMessage[] = [];
 
@@ -566,19 +585,18 @@ export default function Dashboard() {
           recipient: item.recipientId,
           content: item.content,
           tempId: item.tempId
-        }, { withCredentials: true });
-
+        });
         socket?.emit("sendMessage", { recipientId: item.recipientId, message: item.content });
         
-        // Update UI immediately for this item
-        setMessages(prev => prev.map(m => 
-            m.tempId === item.tempId ? { ...m, status: 'sent', _id: res.data.data._id } : m
-        ));
+        if (activeChatIdRef.current === item.recipientId) {
+            setMessages(prev => prev.map(m => 
+                m.tempId === item.tempId ? { ...m, status: 'sent', _id: res.data.data._id } : m
+            ));
+        }
       } catch (err) {
         failedItems.push(item);
       }
     }
-
     if (failedItems.length > 0) {
         const currentQueue = getQueue();
         saveQueue([...failedItems, ...currentQueue]); 
@@ -586,8 +604,7 @@ export default function Dashboard() {
     isProcessingQueue.current = false;
   }, [currentUser, socket, getQueue, saveQueue]);
 
-
-  // --- DATA FETCHING (SMART MERGE) ---
+  // --- DATA FETCHING ---
   const fetchRecentContacts = useCallback(async () => {
     try {
         const res = await api.get('/chat/recent-contacts');
@@ -595,124 +612,128 @@ export default function Dashboard() {
     } catch (e) {}
   }, []);
 
-  const fetchHistory = useCallback(async () => {
+  // UPDATED fetchHistory (with pagination)
+  const fetchHistory = useCallback(async (skipCount = 0) => {
     if (!selectedChatUser || !currentUser) return;
     
+    const targetUserId = selectedChatUser.id;
+    setIsLoadingHistory(true);
+
     try {
-      console.log("📥 Fetching history...");
-      
       const res = await api.get(`/chat/history`, {
-        params: { user1: currentUser.id, user2: selectedChatUser.id }
+        params: { 
+            user1: currentUser.id, 
+            user2: selectedChatUser.id,
+            limit: 10,
+            skip: skipCount
+        }
       });
       
+      if (activeChatIdRef.current !== targetUserId) return;
+
       const serverMessages: Message[] = res.data.messages.map((m: any) => ({
         _id: m._id,
         sender: m.sender,
-        content: m.content,
+        content: m.content || '',
+        messageType: m.messageType || 'text',
+        fileData: m.fileData,
         timestamp: m.timestamp,
         isSelf: m.sender === currentUser.id,
         status: m.status || 'sent'
       }));
 
-      // Get Local Pending (Clock icons)
-      const queue = getQueue();
-      const myPending: Message[] = queue
-        .filter(q => q.recipientId === selectedChatUser.id)
-        .map(q => ({
-          tempId: q.tempId,
-          sender: currentUser.id,
-          content: q.content,
-          timestamp: q.timestamp,
-          isSelf: true,
-          status: 'pending'
-        }));
+      // Set Has More
+      setHasMore(res.data.hasMore);
 
-      // --- THE FIX: PRESERVE RECENTLY SENT ---
-      // We look at the CURRENT state. If we have messages that are 'sent' (not pending) 
-      // but are NOT in the server list yet (latency), we keep them.
-      setMessages(prev => {
-         const recentSent = prev.filter(m => 
-             m.isSelf && 
-             m.status === 'sent' && 
-             // Logic: Keep it if it's NOT in server list yet
-             !serverMessages.some(sm => sm._id === m._id || (sm.content === m.content && sm.timestamp === m.timestamp))
-         );
+      if (skipCount === 0) {
+          // INITIAL LOAD
+          const queue = getQueue();
+          const myPending: Message[] = queue
+            .filter(q => q.recipientId === selectedChatUser.id)
+            .map(q => ({
+              tempId: q.tempId,
+              sender: currentUser.id,
+              content: q.content,
+              timestamp: q.timestamp,
+              isSelf: true,
+              status: 'pending' as const
+            }));
 
-         // Combine: Server + Pending + Preserved Locally Sent
-         const allMsgs = [...serverMessages, ...myPending, ...recentSent].sort((a, b) => 
-             new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-         );
+          setMessages(prev => {
+             const recentSent = prev.filter(m => 
+                 m.isSelf && (m.status === 'sent' || m.status === 'uploading') && 
+                 !serverMessages.some(sm => sm._id === m._id || (sm.tempId && sm.tempId === m.tempId))
+             );
+             
+             const allMsgs = [...serverMessages, ...myPending, ...recentSent].sort((a, b) => 
+                 new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+             );
+             
+             return allMsgs.filter((v, i, a) => 
+                 a.findIndex(t => (t._id && t._id === v._id) || (t.tempId && t.tempId === v.tempId)) === i
+             );
+          });
+      } else {
+          // APPEND OLDER MESSAGES TO TOP
+          setMessages(prev => [...serverMessages, ...prev]);
+      }
 
-         // Remove strict duplicates just in case
-         const uniqueMsgs = allMsgs.filter((v, i, a) => 
-             a.findIndex(t => (t._id && t._id === v._id) || (t.tempId && t.tempId === v.tempId)) === i
-         );
-
-         return uniqueMsgs;
-      });
-
-    } catch (err) {
-      console.error("Fetch history failed", err);
-    }
+    } catch (err) { console.error("Fetch history failed", err); }
+    finally { setIsLoadingHistory(false); }
   }, [selectedChatUser, currentUser, getQueue]);
 
+  // Load More Handler
+  const handleLoadMore = () => {
+      // Approximate skip count by filtering out pending
+      const currentCount = messages.filter(m => m.status !== 'pending').length;
+      fetchHistory(currentCount);
+  };
 
-  // --- EFFECT: Connection & Sync ---
+  // ... (Effects are mostly same, just updating initial fetch call) ...
+
   useEffect(() => {
     if (!currentUser) return;
-
     fetchRecentContacts();
     processQueue();
-
     const syncData = async () => {
-        console.log("⚡ Connection Restored. Processing Queue...");
-        // 1. Send pending first
         await processQueue(); 
-        
-        // 2. Then update history (Smart Merge will prevent data loss)
         fetchRecentContacts();
-        if (selectedChatUser) fetchHistory();
+        if (selectedChatUser) fetchHistory(0);
     };
-
     window.addEventListener('online', syncData);
     if (socket) socket.on("connect", syncData);
-
     return () => {
         window.removeEventListener('online', syncData);
         socket?.off("connect", syncData);
     };
   }, [currentUser, socket, selectedChatUser, fetchHistory, fetchRecentContacts, processQueue]);
 
-
-  // --- EFFECT: Selected User Changed ---
   useEffect(() => {
-    if (selectedChatUser) {
-        fetchHistory();
-    } else {
-        setMessages([]);
+    if (selectedChatUser) { 
+        setMessages([]); 
+        setHasMore(false);
+        fetchHistory(0); // Fetch first page
+    } else { 
+        setMessages([]); 
     }
   }, [selectedChatUser, fetchHistory]); 
 
-
-  // --- EFFECT: Live Messages ---
   useEffect(() => {
     if (!socket) return;
-
     const handleNewMessage = (newMsg: any) => {
       const isForCurrentChat = newMsg.senderId === selectedChatUser?.id || newMsg.senderId === currentUser?.id;
+      const isActuallyActive = activeChatIdRef.current === newMsg.senderId || (newMsg.senderId === currentUser?.id && activeChatIdRef.current === selectedChatUser?.id);
 
-      if (isForCurrentChat) {
+      if (isForCurrentChat && isActuallyActive) {
         setMessages(prev => {
-            const exists = prev.some(m => 
-                (m._id && m._id === newMsg._id) || 
-                (m.content === newMsg.message && m.timestamp === newMsg.timestamp)
-            );
+            const exists = prev.some(m => (m._id && m._id === newMsg._id) || (m.content === newMsg.message && m.timestamp === newMsg.timestamp));
             if (exists) return prev; 
-            
             return [...prev, {
                 _id: newMsg._id,
                 sender: newMsg.senderId,
-                content: newMsg.message,
+                content: newMsg.message || '',
+                messageType: newMsg.messageType || 'text',
+                fileData: newMsg.fileData,
                 timestamp: newMsg.timestamp,
                 isSelf: newMsg.senderId === currentUser?.id,
                 status: 'sent'
@@ -721,13 +742,10 @@ export default function Dashboard() {
       }
       fetchRecentContacts();
     };
-
     socket.on("newMessage", handleNewMessage);
     return () => { socket.off("newMessage", handleNewMessage); };
   }, [socket, selectedChatUser, currentUser, fetchRecentContacts]);
 
-
-  // --- SEARCH ---
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (searchQuery.trim().length > 0) {
@@ -741,51 +759,86 @@ export default function Dashboard() {
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);
 
-
-  // --- SEND MESSAGE ---
-  const handleSendMessage = async () => {
-    if (!inputMsg.trim() || !selectedChatUser || !currentUser) return;
+  const handleSendMessage = async (fileData?: any, tempId?: string) => {
+    if ((!inputMsg.trim() && !fileData) || !selectedChatUser || !currentUser) return;
     
-    const tempId = Date.now().toString();
+    const finalTempId = tempId || Date.now().toString();
     const content = inputMsg;
-    setInputMsg(""); 
+    if(!fileData) setInputMsg(""); 
 
     const optimisticMsg: Message = {
-        tempId,
+        _id: finalTempId,
+        tempId: finalTempId,
         sender: currentUser.id,
-        content,
+        content: content,
+        messageType: fileData ? 'file' : 'text',
+        fileData: fileData ? { ...fileData, url: fileData.url || '' } : undefined,
         timestamp: new Date().toISOString(),
         isSelf: true,
-        status: 'pending'
+        status: fileData ? 'uploading' : 'pending',
+        uploadProgress: 0
     };
     setMessages(prev => [...prev, optimisticMsg]);
 
-    try {
-      const res = await api.post('/chat/send', {
-        sender: currentUser.id,
-        recipient: selectedChatUser.id,
-        content,
-        tempId
-      });
+    if (fileData) {
+        const controller = new AbortController();
+        uploadControllers.current[finalTempId] = controller;
+        const formData = new FormData();
+        formData.append('file', fileData.localFile);
+        
+        try {
+            const uploadRes = await api.post('/chat/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+                signal: controller.signal,
+                onUploadProgress: (p) => {
+                    const percent = Math.round((p.loaded * 100) / (p.total || fileData.size));
+                    setMessages(prev => prev.map(m => m.tempId === finalTempId ? { ...m, uploadProgress: percent } : m));
+                }
+            });
 
-      socket?.emit("sendMessage", { recipientId: selectedChatUser.id, message: content });
-      
-      setMessages(prev => prev.map(m => 
-          m.tempId === tempId ? { ...m, status: 'sent', _id: res.data.data._id } : m
-      ));
-      fetchRecentContacts();
+            const finalFileData = uploadRes.data;
+            const res = await api.post('/chat/send', {
+                sender: currentUser.id, recipient: selectedChatUser.id,
+                content: content, messageType: 'file', fileData: finalFileData, tempId: finalTempId
+            });
 
-    } catch (err) {
-      console.log("⚠️ Offline. Added to queue.");
-      const queue = getQueue();
-      queue.push({
-          tempId,
-          recipientId: selectedChatUser.id,
-          content,
-          timestamp: optimisticMsg.timestamp
-      });
-      saveQueue(queue);
+            socket?.emit("sendMessage", { 
+                recipientId: selectedChatUser.id, message: content, messageType: 'file', fileData: finalFileData 
+            });
+
+            setMessages(prev => prev.map(m => 
+                m.tempId === finalTempId ? { ...m, status: 'sent', _id: res.data.data._id, fileData: finalFileData } : m
+            ));
+        } catch (err: any) {
+            if (err.name === 'Canceled') {
+                setMessages(prev => prev.filter(m => m.tempId !== finalTempId));
+            } else {
+                setMessages(prev => prev.map(m => m.tempId === finalTempId ? { ...m, status: 'failed' } : m));
+            }
+        } finally { delete uploadControllers.current[finalTempId]; }
+
+    } else {
+        try {
+            const res = await api.post('/chat/send', {
+                sender: currentUser.id, recipient: selectedChatUser.id, content, tempId: finalTempId
+            });
+            socket?.emit("sendMessage", { recipientId: selectedChatUser.id, message: content });
+            setMessages(prev => prev.map(m => 
+                m.tempId === finalTempId ? { ...m, status: 'sent', _id: res.data.data._id } : m
+            ));
+            fetchRecentContacts();
+        } catch (err) {
+            const queue = getQueue();
+            queue.push({ tempId: finalTempId, recipientId: selectedChatUser.id, content, timestamp: optimisticMsg.timestamp });
+            saveQueue(queue);
+        }
     }
+  };
+
+  const handleCancelUpload = (tempId: string) => {
+      if (uploadControllers.current[tempId]) {
+          uploadControllers.current[tempId].abort();
+      }
   };
 
   return (
@@ -806,6 +859,10 @@ export default function Dashboard() {
         setInputMsg={setInputMsg}
         onSendMessage={handleSendMessage}
         onlineUsers={onlineUsers}
+        onCancelUpload={handleCancelUpload}
+        onLoadMore={handleLoadMore}
+        hasMore={hasMore}
+        isLoadingHistory={isLoadingHistory}
       />
       <AgreementDrawer />
     </div>
