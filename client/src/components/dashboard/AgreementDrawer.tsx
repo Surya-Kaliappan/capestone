@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FileCheck, X, Plus, Download, UserCheck, Send, Calendar } from 'lucide-react';
+import { FileCheck, X, Plus, UserCheck, Send } from 'lucide-react';
 import { useAppStore } from '../../store';
 
 export default function AgreementDrawer() {

@@ -6,6 +6,7 @@ import { useAppStore } from '../../store';
 import { api } from '../../lib/api'; 
 import { SERVER_URL } from '../../config'; 
 import ImageLightbox from './ImageLightbox';
+import { format, isToday, isYesterday, parseISO } from 'date-fns';
 
 interface FileData {
   url?: string;
@@ -40,6 +41,7 @@ interface ChatAreaProps {
   isLoadingHistory: boolean;
 }
 
+// Helper to format bytes to readable string (e.g., "2.5 MB")
 const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -49,14 +51,14 @@ const formatSize = (bytes: number) => {
 };
 
 const getDateLabel = (dateString: string) => {
-  const date = new Date(dateString);
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-
-  if (date.toDateString() === today.toDateString()) return "Today";
-  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  try {
+    const date = parseISO(dateString);
+    if (isToday(date)) return "Today";
+    if (isYesterday(date)) return "Yesterday";
+    return format(date, 'd MMM yyyy');
+  } catch (e) {
+    return "";
+  }
 };
 
 export default function ChatArea({ 
@@ -71,7 +73,9 @@ export default function ChatArea({
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [hasNewMessage, setHasNewMessage] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<{src: string, name: string} | null>(null);
-  const [downloading, setDownloading] = useState<Record<string, number>>({});
+  
+  // CHANGED: Store loaded/total bytes instead of just percentage
+  const [downloading, setDownloading] = useState<Record<string, { loaded: number; total: number }>>({});
   
   const downloadControllers = useRef<Record<string, AbortController>>({});
   const emojiRef = useRef<any>(null);
@@ -80,15 +84,21 @@ export default function ChatArea({
   const containerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
 
-  // --- SCROLL POSITION REFS ---
   const prevScrollHeightRef = useRef<number>(0); 
   const lastMessageIdRef = useRef<string | null>(null);
 
-  // --- MESSAGE GROUPING (For Sticky Dates) ---
+  const formatMsgTime = (ts: string) => {
+    try {
+        const date = parseISO(ts);
+        return format(date, timeFormat === '12h' ? 'hh:mm a' : 'HH:mm'); 
+    } catch (e) {
+        return "";
+    }
+  };
+
   const messageGroups = useMemo(() => {
     const groups: { date: string; msgs: Message[] }[] = [];
     let currentGroup: { date: string; msgs: Message[] } | null = null;
-
     messages.forEach((msg) => {
       const date = getDateLabel(msg.timestamp);
       if (!currentGroup || currentGroup.date !== date) {
@@ -100,28 +110,39 @@ export default function ChatArea({
     return groups;
   }, [messages]);
 
-  // --- DOWNLOAD LOGIC ---
+  // --- UPDATED DOWNLOAD LOGIC ---
   const handleDownload = async (msg: Message) => {
     if (!msg.fileData?.url || !msg._id) return;
+    
+    // Cancel if already downloading
     if (downloading[msg._id]) {
         downloadControllers.current[msg._id]?.abort();
         setDownloading(prev => { const n = {...prev}; delete n[msg._id!]; return n; });
         return;
     }
+
     const controller = new AbortController();
     downloadControllers.current[msg._id] = controller;
-    setDownloading(prev => ({ ...prev, [msg._id!]: 1 })); 
+    
+    // Initialize with 0 loaded
+    setDownloading(prev => ({ ...prev, [msg._id!]: { loaded: 0, total: msg.fileData!.size } })); 
+
     try {
         const fullUrl = msg.fileData.url.startsWith('http') || msg.fileData.url.startsWith('blob') 
             ? msg.fileData.url : `${SERVER_URL}${msg.fileData.url}`;
+            
         const res = await api.get(fullUrl, {
             responseType: 'blob',
             signal: controller.signal,
             onDownloadProgress: (p) => {
-                const percent = Math.round((p.loaded * 100) / (p.total || msg.fileData!.size));
-                setDownloading(prev => ({ ...prev, [msg._id!]: percent }));
+                // UPDATE: Store exact bytes
+                setDownloading(prev => ({ 
+                    ...prev, 
+                    [msg._id!]: { loaded: p.loaded, total: p.total || msg.fileData!.size } 
+                }));
             }
         });
+
         const url = window.URL.createObjectURL(new Blob([res.data]));
         const link = document.createElement('a');
         link.href = url;
@@ -146,50 +167,33 @@ export default function ChatArea({
     }
   };
 
-  // --- SCROLL HANDLER ---
   const handleScroll = () => {
     if (!containerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    
-    // Show button if > 100px from bottom
     const isBottom = scrollHeight - scrollTop - clientHeight < 100;
     isAtBottomRef.current = isBottom;
     setShowScrollButton(!isBottom);
     if (isBottom) setHasNewMessage(false);
   };
 
-  // --- SMART SCROLL LAYOUT EFFECT ---
   useLayoutEffect(() => {
     if (!containerRef.current) return;
-
     const len = messages.length;
     const currentLastMsg = messages[len - 1];
     const currentLastId = currentLastMsg?._id || currentLastMsg?.tempId;
     const prevLastId = lastMessageIdRef.current;
-
     const container = containerRef.current;
     const currentScrollHeight = container.scrollHeight;
     const prevScrollHeight = prevScrollHeightRef.current;
 
-    // CASE 1: History Loaded (Prepend)
-    // We have messages, the last message is the same as before (so no new message at bottom),
-    // BUT the total height increased. This implies content was added to the top.
     if (len > 0 && currentLastId === prevLastId && currentScrollHeight > prevScrollHeight) {
         const diff = currentScrollHeight - prevScrollHeight;
-        // Adjust scrollTop by the difference to keep the visual position stable
-        if (diff > 0) {
-            container.scrollTop = container.scrollTop + diff;
-        }
+        if (diff > 0) container.scrollTop = container.scrollTop + diff;
     }
-
-    // CASE 2: New Message (Append) or Initial Load
-    // The last message changed. This is either a new text sent/received or the very first load.
     else if (len > 0 && currentLastId !== prevLastId) {
-        // Initial Load (prevLastId is null) -> Jump to bottom instantly
         if (!prevLastId) {
              scrollRef.current?.scrollIntoView({ behavior: "auto" });
         } 
-        // New Message -> Smooth Scroll
         else {
             if (currentLastMsg.isSelf || isAtBottomRef.current) {
                 scrollRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -199,14 +203,10 @@ export default function ChatArea({
             }
         }
     }
-
-    // Update refs for the next render cycle
     prevScrollHeightRef.current = currentScrollHeight;
     lastMessageIdRef.current = currentLastId || null;
-
   }, [messages]);
 
-  // Reset scroll refs when switching users
   useEffect(() => {
       lastMessageIdRef.current = null;
       prevScrollHeightRef.current = 0;
@@ -226,15 +226,10 @@ export default function ChatArea({
   }, []);
 
   const handleAddEmoji = (emojiObject: any) => setInputMsg(inputMsg + emojiObject.emoji);
-  
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault(); setShowEmojiPicker(false); onSendMessage();
     }
-  };
-  
-  const formatMsgTime = (ts: string) => {
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: timeFormat === '12h' });
   };
 
   if (!selectedChatUser) return <div className="hidden md:flex flex-1 flex-col items-center justify-center opacity-40 space-y-4 relative z-10"><MessageSquare size={32} /><p className="text-xl font-bold">Select a contact to begin</p></div>;
@@ -261,41 +256,26 @@ export default function ChatArea({
 
         <div className="flex-1 relative overflow-hidden flex flex-col">
             <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4 bg-pattern scrollbar-hide">
-               
-               {/* --- LOAD PREVIOUS BUTTON --- */}
                {hasMore && (
                    <div className="flex justify-center mb-6">
-                       <button 
-                         onClick={onLoadMore}
-                         disabled={isLoadingHistory}
-                         className={`text-xs px-3 py-1.5 rounded-full shadow-sm flex items-center gap-2 transition-all active:scale-95 border
-                            ${isDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}
-                         `}
-                       >
+                       <button onClick={onLoadMore} disabled={isLoadingHistory} className={`text-xs px-3 py-1.5 rounded-full shadow-sm flex items-center gap-2 transition-all active:scale-95 border ${isDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                            {isLoadingHistory ? <Loader2 size={12} className="animate-spin"/> : <Clock size={12} />}
                            {isLoadingHistory ? 'Loading...' : 'Load previous messages'}
                        </button>
                    </div>
                )}
 
-               {/* --- MESSAGE GROUPS --- */}
                {messageGroups.map((group) => (
                  <div key={group.date} className="relative pb-2">
-                    
-                    {/* Sticky Date Header */}
                     <div className="sticky top-2 z-10 flex justify-center pb-4 pt-2 pointer-events-none">
-                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full shadow-sm backdrop-blur-md border 
-                            ${isDark ? 'bg-slate-800/80 border-slate-700 text-slate-300' : 'bg-white/80 border-slate-200 text-slate-600'}
-                        `}>
+                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full shadow-sm backdrop-blur-md border ${isDark ? 'bg-slate-800/80 border-slate-700 text-slate-300' : 'bg-white/80 border-slate-200 text-slate-600'}`}>
                             {group.date}
                         </span>
                     </div>
 
-                    {/* Messages in Group */}
                     {group.msgs.map((msg, idx) => {
                         const prevMsg = group.msgs[idx - 1];
                         const nextMsg = group.msgs[idx + 1];
-                        
                         const isSameSenderAsPrev = prevMsg && prevMsg.sender === msg.sender;
                         const isSameSenderAsNext = nextMsg && nextMsg.sender === msg.sender;
 
@@ -314,33 +294,44 @@ export default function ChatArea({
                         
                         const isImage = msg.messageType === 'file' && msg.fileData?.mimeType.startsWith('image/');
                         const isUploading = msg.status === 'uploading';
-                        const isDownloading = msg._id && downloading[msg._id];
-                        const progress = isUploading ? (msg.uploadProgress || 0) : (isDownloading || 0);
+                        
+                        // Handle Download State
+                        const downloadState = msg._id ? downloading[msg._id] : undefined;
+                        const isDownloading = !!downloadState;
+                        const downloadProgress = downloadState ? Math.round((downloadState.loaded * 100) / downloadState.total) : 0;
+                        const progress = isUploading ? (msg.uploadProgress || 0) : (downloadProgress || 0);
 
                         return (
                             <div key={msg._id || msg.tempId} className="w-full">
                                 <div className={`flex w-full ${isSameSenderAsNext ? 'mb-[2px]' : 'mb-2'} ${msg.isSelf ? 'justify-end' : 'justify-start'}`}>
                                     <div className={`relative shadow-sm border ${msg.isSelf ? 'bg-primary border-primary text-white' : (isDark ? 'bg-[#1e293b] border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900')} ${borderRadiusClass} ${msg.messageType === 'file' ? 'p-0 max-w-[75%]' : 'px-2 pt-1 pb-1.5 max-w-[85%] md:max-w-[65%]'}`}>
                                         
-                                        {/* IMAGE */}
+                                        {/* IMAGE BUBBLE */}
                                         {isImage && (
                                             <div className="relative group cursor-pointer" onClick={() => !isUploading && setLightboxSrc({ src: msg.fileData?.url?.startsWith('blob') ? msg.fileData.url : `${SERVER_URL}${msg.fileData?.url}`, name: msg.fileData?.name || 'Image' })}>
                                                 <img src={msg.fileData?.url?.startsWith('blob') ? msg.fileData.url : `${SERVER_URL}${msg.fileData?.url}`} alt="attachment" className={`object-cover w-64 h-64 sm:h-72 sm:w-72 ${isUploading || isDownloading ? 'brightness-50 blur-[2px]' : ''} ${borderRadiusClass}`} />
-                                                {(isUploading) && (
-                                                    <div className="absolute inset-0 flex items-center justify-center">
-                                                        <div className="relative w-12 h-12 flex items-center justify-center bg-black/40 rounded-full backdrop-blur-sm">
+                                                {(isUploading || isDownloading) && (
+                                                    <div className="absolute inset-0 flex flex-col gap-2 items-center justify-center bg-black/40 backdrop-blur-[1px] transition-all">
+                                                        {/* Progress Circle */}
+                                                        <div className="relative w-12 h-12 flex items-center justify-center">
                                                             <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                                                                <path className="text-white/20" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
-                                                                <path className="text-white transition-all duration-300" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
+                                                                <path className="text-white/30" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
+                                                                <path className="text-white drop-shadow-md transition-all duration-300" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
                                                             </svg>
-                                                            <button onClick={(e) => { e.stopPropagation(); if(onCancelUpload && msg.tempId) onCancelUpload(msg.tempId); }} className="absolute inset-0 flex items-center justify-center text-white"><X size={16} /></button>
+                                                            <button onClick={(e) => { e.stopPropagation(); if(onCancelUpload && msg.tempId) onCancelUpload(msg.tempId); if(isDownloading && msg._id) handleDownload(msg); }} className="absolute inset-0 flex items-center justify-center text-white hover:scale-110 transition"><X size={16} /></button>
                                                         </div>
+                                                        {/* NEW: Data Text for Images (e.g. 2.5 MB / 5.0 MB) */}
+                                                        {isDownloading && downloadState && (
+                                                            <span className="text-[10px] font-bold text-white bg-black/50 px-2 py-0.5 rounded-full backdrop-blur-sm shadow-sm">
+                                                                {formatSize(downloadState.loaded)} / {formatSize(downloadState.total)}
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
                                         )}
 
-                                        {/* FILE */}
+                                        {/* FILE BUBBLE */}
                                         {msg.messageType === 'file' && !isImage && (
                                             <div className="flex items-center gap-3 p-3 min-w-[220px]">
                                                 <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-white/10' : 'bg-black/5'}`}>
@@ -348,7 +339,17 @@ export default function ChatArea({
                                                 </div>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="truncate text-sm font-medium">{msg.fileData?.name}</div>
-                                                    <div className="text-xs opacity-70">{formatSize(msg.fileData?.size || 0)} • {msg.fileData?.mimeType.split('/')[1]?.toUpperCase()}</div>
+                                                    
+                                                    {/* NEW: Dynamic Details (Size vs Progress) */}
+                                                    <div className="text-xs opacity-70">
+                                                        {isDownloading && downloadState ? (
+                                                            <span className="animate-pulse">
+                                                                {formatSize(downloadState.loaded)} / {formatSize(downloadState.total)}
+                                                            </span>
+                                                        ) : (
+                                                            <span>{formatSize(msg.fileData?.size || 0)} • {msg.fileData?.mimeType.split('/')[1]?.toUpperCase()}</span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 <div>
                                                     {isUploading || isDownloading ? (
@@ -364,7 +365,6 @@ export default function ChatArea({
                                             </div>
                                         )}
 
-                                        {/* TEXT */}
                                         <div className={`relative ${msg.messageType === 'file' ? 'px-3 pb-2 pt-1' : ''}`}>
                                             <span className="leading-snug inline-block break-words whitespace-pre-wrap w-full text-sm">
                                                 {msg.content}
@@ -385,33 +385,15 @@ export default function ChatArea({
                
                <div ref={scrollRef} />
 
-               {/* --- FLOATING SCROLL BUTTON (Repositioned to bottom-20) --- */}
                <AnimatePresence>
                  {showScrollButton && (
-                   <motion.button 
-                     initial={{ opacity: 0, scale: 0.8 }} 
-                     animate={{ 
-                        opacity: 1, 
-                        scale: hasNewMessage ? [1, 1.1, 1] : 1, 
-                        transition: hasNewMessage ? { repeat: Infinity, duration: 1.5 } : {} 
-                     }} 
-                     exit={{ opacity: 0, scale: 0.8 }} 
-                     onClick={scrollToBottom} 
-                     className={`
-                        absolute right-4 bottom-20 z-30 
-                        w-10 h-10 md:w-12 md:h-12 flex items-center justify-center 
-                        rounded-2xl shadow-xl border transition-colors duration-300 
-                        ${hasNewMessage ? 'bg-primary border-primary text-white' : isDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}
-                     `}
-                   >
-                     <ChevronDown size={24} />
-                     {hasNewMessage && <span className="absolute inset-0 rounded-2xl bg-white/20 animate-pulse"></span>}
+                   <motion.button initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: hasNewMessage ? [1, 1.1, 1] : 1, transition: hasNewMessage ? { repeat: Infinity, duration: 1.5 } : {} }} exit={{ opacity: 0, scale: 0.8 }} onClick={scrollToBottom} className={`absolute right-4 bottom-20 z-30 w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-2xl shadow-xl border transition-colors duration-300 ${hasNewMessage ? 'bg-primary border-primary text-white' : isDark ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                     <ChevronDown size={24} />{hasNewMessage && <span className="absolute inset-0 rounded-2xl bg-white/20 animate-pulse"></span>}
                    </motion.button>
                  )}
                </AnimatePresence>
             </div>
             
-            {/* Input Bar */}
             <div className={`p-3 md:p-4 border-t relative ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
                <AnimatePresence>
                  {showEmojiPicker && (

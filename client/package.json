@@ -12,6 +12,7 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.1.17",
     "axios": "^1.13.2",
+    "date-fns": "^4.1.0",
     "emoji-picker-react": "^4.16.1",
     "framer-motion": "^12.23.25",
     "lucide-react": "^0.556.0",
