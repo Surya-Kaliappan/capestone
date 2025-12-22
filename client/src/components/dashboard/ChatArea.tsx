@@ -21,7 +21,7 @@ interface Message {
   tempId?: string;
   sender: string;
   content: string;
-  messageType?: 'text' | 'file';
+  messageType?: 'text' | 'file' | 'agreement_proposal' ;
   fileData?: FileData;
   timestamp: string;
   isSelf: boolean;
@@ -300,82 +300,105 @@ export default function ChatArea({
                         const isDownloading = !!downloadState;
                         const downloadProgress = downloadState ? Math.round((downloadState.loaded * 100) / downloadState.total) : 0;
                         const progress = isUploading ? (msg.uploadProgress || 0) : (downloadProgress || 0);
+                        const isAgreementLink = msg.messageType === 'agreement_proposal';
 
                         return (
                             <div key={msg._id || msg.tempId} className="w-full">
-                                <div className={`flex w-full ${isSameSenderAsNext ? 'mb-[2px]' : 'mb-2'} ${msg.isSelf ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`relative shadow-sm border ${msg.isSelf ? 'bg-primary border-primary text-white' : (isDark ? 'bg-[#1e293b] border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900')} ${borderRadiusClass} ${msg.messageType === 'file' ? 'p-0 max-w-[75%]' : 'px-2 pt-1 pb-1.5 max-w-[85%] md:max-w-[65%]'}`}>
-                                        
-                                        {/* IMAGE BUBBLE */}
-                                        {isImage && (
-                                            <div className="relative group cursor-pointer" onClick={() => !isUploading && setLightboxSrc({ src: msg.fileData?.url?.startsWith('blob') ? msg.fileData.url : `${SERVER_URL}${msg.fileData?.url}`, name: msg.fileData?.name || 'Image' })}>
-                                                <img src={msg.fileData?.url?.startsWith('blob') ? msg.fileData.url : `${SERVER_URL}${msg.fileData?.url}`} alt="attachment" className={`object-cover w-64 h-64 sm:h-72 sm:w-72 ${isUploading || isDownloading ? 'brightness-50 blur-[2px]' : ''} ${borderRadiusClass}`} />
-                                                {(isUploading || isDownloading) && (
-                                                    <div className="absolute inset-0 flex flex-col gap-2 items-center justify-center bg-black/40 backdrop-blur-[1px] transition-all">
-                                                        {/* Progress Circle */}
-                                                        <div className="relative w-12 h-12 flex items-center justify-center">
-                                                            <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
-                                                                <path className="text-white/30" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
-                                                                <path className="text-white drop-shadow-md transition-all duration-300" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
-                                                            </svg>
-                                                            <button onClick={(e) => { e.stopPropagation(); if(onCancelUpload && msg.tempId) onCancelUpload(msg.tempId); if(isDownloading && msg._id) handleDownload(msg); }} className="absolute inset-0 flex items-center justify-center text-white hover:scale-110 transition"><X size={16} /></button>
-                                                        </div>
-                                                        {/* NEW: Data Text for Images (e.g. 2.5 MB / 5.0 MB) */}
-                                                        {isDownloading && downloadState && (
-                                                            <span className="text-[10px] font-bold text-white bg-black/50 px-2 py-0.5 rounded-full backdrop-blur-sm shadow-sm">
-                                                                {formatSize(downloadState.loaded)} / {formatSize(downloadState.total)}
-                                                            </span>
+                                <div className={`flex w-full ${msg.isSelf ? 'justify-end' : 'justify-start'}`}>
+                                    {isAgreementLink ? (
+                                        /* STYLED AGREEMENT LINK */
+                                        <button 
+                                          onClick={() => toggleAgreementPanel(true)}
+                                          className={`flex items-center gap-3 p-3 mb-2 rounded-2xl border transition-all active:scale-95 text-left max-w-[80%]
+                                            ${isDark ? 'bg-primary/10 border-primary/30 text-white hover:bg-primary/20' : 'bg-blue-50 border-blue-200 text-blue-900 hover:bg-blue-100'}
+                                          `}
+                                        >
+                                            <div className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center shrink-0">
+                                                <FileText size={20}/>
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-bold opacity-60 uppercase mb-0.5">Contract Proposal</p>
+                                                <p className="text-sm font-bold truncate">{msg.content.replace('📜 New Agreement Proposal: ', '')}</p>
+                                            </div>
+                                        </button>
+                                    ) : (
+                                        /* STANDARD MESSAGE (Image/File/Text) */
+                                        // ... keep your existing logic here ...
+                                        <div className={`flex w-full ${isSameSenderAsNext ? 'mb-[2px]' : 'mb-2'} ${msg.isSelf ? 'justify-end' : 'justify-start'}`}>
+                                            <div className={`relative shadow-sm border ${msg.isSelf ? 'bg-primary border-primary text-white' : (isDark ? 'bg-[#1e293b] border-slate-700 text-slate-100' : 'bg-white border-slate-200 text-slate-900')} ${borderRadiusClass} ${msg.messageType === 'file' ? 'p-0 max-w-[75%]' : 'px-2 pt-1 pb-1.5 max-w-[85%] md:max-w-[65%]'}`}>
+                                                
+                                                {/* IMAGE BUBBLE */}
+                                                {isImage && (
+                                                    <div className="relative group cursor-pointer" onClick={() => !isUploading && setLightboxSrc({ src: msg.fileData?.url?.startsWith('blob') ? msg.fileData.url : `${SERVER_URL}${msg.fileData?.url}`, name: msg.fileData?.name || 'Image' })}>
+                                                        <img src={msg.fileData?.url?.startsWith('blob') ? msg.fileData.url : `${SERVER_URL}${msg.fileData?.url}`} alt="attachment" className={`object-cover w-64 h-64 sm:h-72 sm:w-72 ${isUploading || isDownloading ? 'brightness-50 blur-[2px]' : ''} ${borderRadiusClass}`} />
+                                                        {(isUploading || isDownloading) && (
+                                                            <div className="absolute inset-0 flex flex-col gap-2 items-center justify-center bg-black/40 backdrop-blur-[1px] transition-all">
+                                                                {/* Progress Circle */}
+                                                                <div className="relative w-12 h-12 flex items-center justify-center">
+                                                                    <svg className="w-full h-full -rotate-90" viewBox="0 0 36 36">
+                                                                        <path className="text-white/30" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
+                                                                        <path className="text-white drop-shadow-md transition-all duration-300" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="3" />
+                                                                    </svg>
+                                                                    <button onClick={(e) => { e.stopPropagation(); if(onCancelUpload && msg.tempId) onCancelUpload(msg.tempId); if(isDownloading && msg._id) handleDownload(msg); }} className="absolute inset-0 flex items-center justify-center text-white hover:scale-110 transition"><X size={16} /></button>
+                                                                </div>
+                                                                {/* NEW: Data Text for Images (e.g. 2.5 MB / 5.0 MB) */}
+                                                                {isDownloading && downloadState && (
+                                                                    <span className="text-[10px] font-bold text-white bg-black/50 px-2 py-0.5 rounded-full backdrop-blur-sm shadow-sm">
+                                                                        {formatSize(downloadState.loaded)} / {formatSize(downloadState.total)}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         )}
                                                     </div>
                                                 )}
-                                            </div>
-                                        )}
 
-                                        {/* FILE BUBBLE */}
-                                        {msg.messageType === 'file' && !isImage && (
-                                            <div className="flex items-center gap-3 p-3 min-w-[220px]">
-                                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-white/10' : 'bg-black/5'}`}>
-                                                    <FileIcon size={20} className={msg.isSelf ? 'text-white' : 'text-primary'} />
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="truncate text-sm font-medium">{msg.fileData?.name}</div>
-                                                    
-                                                    {/* NEW: Dynamic Details (Size vs Progress) */}
-                                                    <div className="text-xs opacity-70">
-                                                        {isDownloading && downloadState ? (
-                                                            <span className="animate-pulse">
-                                                                {formatSize(downloadState.loaded)} / {formatSize(downloadState.total)}
-                                                            </span>
-                                                        ) : (
-                                                            <span>{formatSize(msg.fileData?.size || 0)} • {msg.fileData?.mimeType.split('/')[1]?.toUpperCase()}</span>
-                                                        )}
+                                                {/* FILE BUBBLE */}
+                                                {msg.messageType === 'file' && !isImage && (
+                                                    <div className="flex items-center gap-3 p-3 min-w-[220px]">
+                                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${isDark ? 'bg-white/10' : 'bg-black/5'}`}>
+                                                            <FileIcon size={20} className={msg.isSelf ? 'text-white' : 'text-primary'} />
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="truncate text-sm font-medium">{msg.fileData?.name}</div>
+                                                            
+                                                            {/* NEW: Dynamic Details (Size vs Progress) */}
+                                                            <div className="text-xs opacity-70">
+                                                                {isDownloading && downloadState ? (
+                                                                    <span className="animate-pulse">
+                                                                        {formatSize(downloadState.loaded)} / {formatSize(downloadState.total)}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span>{formatSize(msg.fileData?.size || 0)} • {msg.fileData?.mimeType.split('/')[1]?.toUpperCase()}</span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        <div>
+                                                            {isUploading || isDownloading ? (
+                                                                <button onClick={() => { if(isUploading && onCancelUpload && msg.tempId) onCancelUpload(msg.tempId); if(isDownloading && msg._id) handleDownload(msg); }} className="p-2 hover:bg-black/10 rounded-full relative">
+                                                                    <svg className="w-6 h-6 -rotate-90" viewBox="0 0 36 36">
+                                                                        <path className="text-current opacity-30" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
+                                                                        <path className="text-current" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
+                                                                    </svg>
+                                                                    <X size={10} className="absolute inset-0 m-auto" />
+                                                                </button>
+                                                            ) : (<button onClick={() => handleDownload(msg)} className="p-2 hover:bg-black/10 rounded-full"><Download size={20} /></button>)}
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div>
-                                                    {isUploading || isDownloading ? (
-                                                        <button onClick={() => { if(isUploading && onCancelUpload && msg.tempId) onCancelUpload(msg.tempId); if(isDownloading && msg._id) handleDownload(msg); }} className="p-2 hover:bg-black/10 rounded-full relative">
-                                                            <svg className="w-6 h-6 -rotate-90" viewBox="0 0 36 36">
-                                                                <path className="text-current opacity-30" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
-                                                                <path className="text-current" strokeDasharray={`${progress}, 100`} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" strokeWidth="4" />
-                                                            </svg>
-                                                            <X size={10} className="absolute inset-0 m-auto" />
-                                                        </button>
-                                                    ) : (<button onClick={() => handleDownload(msg)} className="p-2 hover:bg-black/10 rounded-full"><Download size={20} /></button>)}
+                                                )}
+
+                                                <div className={`relative ${msg.messageType === 'file' ? 'px-3 pb-2 pt-1' : ''}`}>
+                                                    <span className="leading-snug inline-block break-words whitespace-pre-wrap w-full text-sm">
+                                                        {msg.content}
+                                                        <span className={`float-right mt-0.5 ml-4 text-[10px] flex items-center gap-0.5 select-none align-bottom ${msg.isSelf ? 'text-white/70' : 'opacity-50'}`}>
+                                                            <span className="whitespace-nowrap translate-y-[2px]">{formatMsgTime(msg.timestamp)}</span>
+                                                            {msg.isSelf && msg.status === 'pending' && <Clock size={10} className="animate-pulse text-yellow-300 inline-block ml-0.5 translate-y-[1px]" />}
+                                                            {msg.isSelf && msg.status === 'uploading' && <span className="text-[9px] ml-0.5">{progress}%</span>}
+                                                        </span>
+                                                    </span>
                                                 </div>
                                             </div>
-                                        )}
-
-                                        <div className={`relative ${msg.messageType === 'file' ? 'px-3 pb-2 pt-1' : ''}`}>
-                                            <span className="leading-snug inline-block break-words whitespace-pre-wrap w-full text-sm">
-                                                {msg.content}
-                                                <span className={`float-right mt-0.5 ml-4 text-[10px] flex items-center gap-0.5 select-none align-bottom ${msg.isSelf ? 'text-white/70' : 'opacity-50'}`}>
-                                                    <span className="whitespace-nowrap translate-y-[2px]">{formatMsgTime(msg.timestamp)}</span>
-                                                    {msg.isSelf && msg.status === 'pending' && <Clock size={10} className="animate-pulse text-yellow-300 inline-block ml-0.5 translate-y-[1px]" />}
-                                                    {msg.isSelf && msg.status === 'uploading' && <span className="text-[9px] ml-0.5">{progress}%</span>}
-                                                </span>
-                                            </span>
                                         </div>
-                                    </div>
+                                    )}
                                 </div>
                             </div>
                         );

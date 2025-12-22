@@ -1,6 +1,6 @@
 // The Base URL for your Backend
 // When you deploy, you just change this ONE line.
-export const SERVER_URL = "http://10.221.227.235:3000"; 
+export const SERVER_URL = "http://10.184.130.236:3000"; 
 
 // Derived URLs
 export const API_BASE_URL = `${SERVER_URL}/api`;

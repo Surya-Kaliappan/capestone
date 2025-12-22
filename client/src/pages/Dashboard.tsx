@@ -20,7 +20,7 @@ interface Message {
   tempId?: string;
   sender: string;
   content: string;
-  messageType?: 'text' | 'file';
+  messageType?: 'text' | 'file' | 'agreement_proposal';
   fileData?: FileData;
   timestamp: string;
   isSelf: boolean;
@@ -99,7 +99,7 @@ export default function Dashboard() {
         socket?.emit("sendMessage", { 
             recipientId: item.recipientId, 
             message: item.content,
-            timestamp: new Date().toISOString() // Ensure UTC in socket
+            timestamp: new Date().toISOString()
         });
         
         if (activeChatIdRef.current === item.recipientId) {
@@ -108,7 +108,7 @@ export default function Dashboard() {
                     ...m, 
                     status: 'sent', 
                     _id: res.data.data._id,
-                    timestamp: res.data.data.timestamp // Sync with server time
+                    timestamp: res.data.data.timestamp
                 } : m
             ));
         }
@@ -155,7 +155,7 @@ export default function Dashboard() {
         content: m.content || '',
         messageType: m.messageType || 'text',
         fileData: m.fileData,
-        timestamp: m.timestamp, // Server should return ISO string
+        timestamp: m.timestamp,
         isSelf: m.sender === currentUser.id,
         status: m.status || 'sent'
       }));
@@ -197,10 +197,26 @@ export default function Dashboard() {
     finally { setIsLoadingHistory(false); }
   }, [selectedChatUser, currentUser, getQueue]);
 
-  // Handler for Load More
   const handleLoadMore = () => {
       const currentCount = messages.filter(m => m.status !== 'pending').length;
       fetchHistory(currentCount);
+  };
+
+  // --- NEW: HANDLER FOR AGREEMENT MESSAGES ---
+  const handleAgreementMessage = (msg: any, isUpdate = false) => {
+    if (!selectedChatUser || selectedChatUser.id !== activeChatIdRef.current) return;
+
+    setMessages(prev => {
+      if (isUpdate) {
+        // Update existing pending message
+        return prev.map(m => (m.tempId === msg.tempId ? { ...m, ...msg } : m));
+      }
+      // Add new pending message
+      return [...prev, msg];
+    });
+    
+    // Refresh contacts to show last message
+    fetchRecentContacts();
   };
 
   // --- EFFECTS ---
@@ -320,13 +336,13 @@ export default function Dashboard() {
 
             socket?.emit("sendMessage", { 
                 recipientId: selectedChatUser.id, message: content, messageType: 'file', fileData: finalFileData,
-                timestamp: res.data.data.timestamp // Sync time
+                timestamp: res.data.data.timestamp
             });
 
             setMessages(prev => prev.map(m => 
                 m.tempId === finalTempId ? { 
                     ...m, status: 'sent', _id: res.data.data._id, fileData: finalFileData,
-                    timestamp: res.data.data.timestamp // FORCE SYNC WITH SERVER TIME
+                    timestamp: res.data.data.timestamp
                 } : m
             ));
         } catch (err: any) {
@@ -345,12 +361,12 @@ export default function Dashboard() {
             });
             socket?.emit("sendMessage", { 
                 recipientId: selectedChatUser.id, message: content,
-                timestamp: res.data.data.timestamp // Sync time
+                timestamp: res.data.data.timestamp
             });
             setMessages(prev => prev.map(m => 
                 m.tempId === finalTempId ? { 
                     ...m, status: 'sent', _id: res.data.data._id,
-                    timestamp: res.data.data.timestamp // FORCE SYNC WITH SERVER TIME
+                    timestamp: res.data.data.timestamp
                 } : m
             ));
             fetchRecentContacts();
@@ -391,7 +407,8 @@ export default function Dashboard() {
         hasMore={hasMore}
         isLoadingHistory={isLoadingHistory}
       />
-      <AgreementDrawer />
+      {/* Pass the handler to the drawer */}
+      <AgreementDrawer onAgreementMessage={handleAgreementMessage} />
     </div>
   );
 }
