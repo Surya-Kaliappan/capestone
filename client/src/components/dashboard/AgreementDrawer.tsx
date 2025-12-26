@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  FileCheck, X, Plus, UserCheck, Send, RotateCcw, 
-  CheckCircle, Edit3, Loader2, AlertCircle, RefreshCw, Eye, ArrowLeft 
+  FileCheck, X, Plus, UserCheck, Send, RotateCcw, ShieldCheck, Clock,
+  CheckCircle, Edit3, Loader2, AlertCircle, RefreshCw, Eye, ArrowLeft, Lock
 } from 'lucide-react';
 import { useAppStore } from '../../store';
 import { api } from '../../lib/api';
@@ -27,6 +27,10 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
   const [agreements, setAgreements] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const [isSigning, setIsSigning] = useState(false);
+  const [sealingPassword, setSealingPassword] = useState('');
+  const [fetchingIPFS, setFetchingIPFS] = useState(false);
 
   const lastSynced = useRef<string | null>(null);
 
@@ -82,10 +86,22 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
     setIsDrafting(true);
   };
 
-  const handleViewAgreement = (ag: any) => {
+  const handleViewAgreement = async (ag: any) => {
     setIsEditingId(ag._id);
     setDraftTitle(ag.title);
-    setDraftContent(ag.content);
+    if(ag.status === 'active'){
+      setFetchingIPFS(true);
+      try {
+        const res = await api.get(`/agreements/${ag._id}/content`);
+        setDraftContent(res.data.content);
+      } catch (error) {
+        setDraftContent("Error loading from IPFS");
+      } finally {
+        setFetchingIPFS(false);
+      }
+    } else {
+      setDraftContent(ag.content);
+    }
     setIsReadOnly(true); 
     setIsDrafting(true);
   };
@@ -94,8 +110,6 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
     if (!draftTitle.trim() || !draftContent.trim() || !selectedChatUser || !currentUser) return;
     setActionLoading('send');
 
-    // --- 1. OPTIMISTIC UI: Show "Pending" Bubble Immediately ---
-    // Only do this for NEW proposals (not edits) to show in chat
     let tempId: string | null = null;
     if (!isEditingId && onAgreementMessage) {
         tempId = Date.now().toString();
@@ -107,7 +121,7 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
             messageType: 'agreement_proposal',
             timestamp: new Date().toISOString(),
             isSelf: true,
-            status: 'pending' // Shows Clock 🕒
+            status: 'pending' // Shows Clock 
         }, false); // false = Add new
     }
 
@@ -189,7 +203,26 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
     }
   };
 
+  const handleSign = async () => {
+    if (!sealingPassword.trim() || !isEditingId) return;
+    setActionLoading('sign');
+    try {
+      await api.post(`/agreements/${isEditingId}/sign`, { sealingPassword });
+      setIsSigning(false);
+      setSealingPassword('');
+      fetchAgreements(); // Force reload to show "Active" status
+    } catch (err: any) {
+      alert(err.response?.data?.message || "Signing failed");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const currentAg = agreements.find(a => a._id === isEditingId);
+
+  const hasUserSigned = useMemo(() => {
+    return currentAg?.signatures.some((s: any) => s.signerId === currentUser?.id);
+  }, [currentUser, currentAg]);
 
   return (
     <AnimatePresence>
@@ -233,13 +266,15 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
                         {loading ? <div className="flex justify-center p-10"><Loader2 className="animate-spin text-primary" size={32}/></div> : agreements.map((ag) => (
                           <div key={ag._id} onClick={() => handleViewAgreement(ag)} className={`p-5 rounded-2xl border flex flex-col md:flex-row justify-between items-start md:items-center gap-4 cursor-pointer group transition-all ${isDark ? 'bg-slate-800/50 border-slate-700 hover:bg-slate-800' : 'bg-white border-slate-200 shadow-sm hover:shadow-md'}`}>
                             <div className="flex-1 min-w-0">
-                               <div className="flex items-center gap-3 mb-2 flex-wrap">
+                               <div className="flex items-center gap-3 mb-1">
                                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${ag.status === 'active' ? 'bg-emerald-500/20 text-emerald-500' : ag.status === 'pending_signature' ? 'bg-amber-500/20 text-amber-500' : 'bg-primary/20 text-primary'}`}>{ag.status.replace('_', ' ')}</span>
                                   <span className="text-xs opacity-40 font-mono">#{ag.agreementId.slice(-6)}</span>
+                                  <span className="px-2 py-0.5 rounded bg-slate-500/10 text-slate-500 text-[10px] font-mono font-bold">
+                                    v{ag.version}.0
+                                  </span>
                                   {ag.recallCount > 0 && <span className="text-[10px] text-rose-400 flex items-center gap-1"><RotateCcw size={10}/> Recalled {ag.recallCount}x</span>}
                                </div>
                                <h4 className="font-bold text-lg mb-1 truncate group-hover:text-primary transition-colors">{ag.title}</h4>
-                               <p className="text-sm opacity-60 line-clamp-1 italic">"{ag.content}"</p>
                             </div>
                             <div className="flex items-center gap-2 shrink-0 w-full md:w-auto justify-end">
                                {ag.status === 'proposed' && ag.currentTurn === currentUser?.id ? (
@@ -257,6 +292,7 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
                  ) : (
                    /* EDITOR */
                    <div className="flex flex-col h-full bg-inherit">
+                      {fetchingIPFS && <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center"><Loader2 className="animate-spin" /></div>}
                       <div className={`px-4 py-3 md:px-6 border-b flex items-center justify-between gap-4 shrink-0 ${isDark ? 'bg-[#0f172a]' : 'bg-slate-50'}`}>
                           <div className="flex items-center gap-3 overflow-x-auto scrollbar-hide">
                             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border shrink-0 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-300'}`}>
@@ -315,6 +351,20 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
                                   {isEditingId ? 'Resubmit Proposal' : 'Send Proposal'}
                                </button>
                             )}
+
+                            {currentAg?.status === 'pending_signature' && !hasUserSigned && (
+                              <button 
+                                onClick={() => setIsSigning(true)} 
+                                className="px-6 py-2.5 rounded-xl bg-emerald-500 text-white font-bold text-sm shadow-lg shadow-emerald-500/20 flex items-center gap-2 active:scale-95 transition-all"
+                              >
+                                <ShieldCheck size={16}/> Sign & Seal
+                              </button>
+                            )}
+                            {hasUserSigned && currentAg?.status === 'pending_signature' && (
+                                <span className="text-xs font-bold text-amber-500 flex items-center gap-1 italic">
+                                    <Clock size={14}/> Awaiting counter-party signature...
+                                </span>
+                            )}
                          </div>
                       </div>
                    </div>
@@ -322,6 +372,34 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
               </div>
             </motion.div>
            </>
+        )}
+        {isSigning && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-6">
+            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }} className={`w-full max-w-sm p-6 rounded-2xl shadow-2xl ${isDark ? 'bg-[#1e293b]' : 'bg-white'}`}>
+              <div className="flex justify-center mb-4 text-emerald-500"><Lock size={48}/></div>
+              <h3 className="text-center text-xl font-bold mb-2">Sealing Ceremony</h3>
+              <p className="text-center text-sm opacity-60 mb-6">Enter your sealing password to digitally sign this agreement.</p>
+              
+              <input 
+                type="password" 
+                placeholder="Sealing Password"
+                value={sealingPassword}
+                onChange={(e) => setSealingPassword(e.target.value)}
+                className={`w-full p-3 rounded-xl mb-4 text-center font-bold tracking-widest ${isDark ? 'bg-black/20 text-white' : 'bg-slate-100 text-slate-900'} focus:outline-none focus:ring-2 focus:ring-emerald-500`}
+              />
+              
+              <div className="flex gap-3">
+                <button onClick={() => { setIsSigning(false); setSealingPassword(''); }} className="flex-1 py-3 rounded-xl font-bold opacity-60 hover:opacity-100 transition">Cancel</button>
+                <button 
+                  onClick={handleSign} 
+                  disabled={actionLoading === 'sign'} 
+                  className="flex-1 py-3 rounded-xl bg-emerald-500 text-white font-bold shadow-lg shadow-emerald-500/30 flex justify-center gap-2"
+                >
+                  {actionLoading === 'sign' ? <Loader2 className="animate-spin"/> : <ShieldCheck size={18}/>} Sign Now
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
     </AnimatePresence>
   );

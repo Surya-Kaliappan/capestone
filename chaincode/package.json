@@ -1,0 +1,17 @@
+{
+  "name": "secure-agreement-chaincode",
+  "version": "1.0.0",
+  "description": "Secure Agreements Chaincode",
+  "main": "index.js",
+  "engines": {
+    "node": ">=12",
+    "npm": ">=6"
+  },
+  "scripts": {
+    "start": "fabric-chaincode-node start"
+  },
+  "dependencies": {
+    "fabric-contract-api": "^2.4.0",
+    "fabric-shim": "^2.4.0"
+  }
+}

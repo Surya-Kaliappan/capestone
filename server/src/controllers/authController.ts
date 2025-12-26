@@ -3,6 +3,7 @@ import argon2 from 'argon2';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
 import { generateIdentity, encryptPrivateKey } from '../utils/crypto';
+import { registerBlockchainUser } from '../services/blockchainAuth';
 
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret_jwt_key_12345";
 
@@ -39,6 +40,13 @@ export const signup = async (req: Request, res: Response): Promise<void> => {
         authTag: encryptedIdentity.authTag
       }
     });
+
+    console.log(`[Auth] Registering user ${user._id} on Fabric CA...`);
+    try {
+      await registerBlockchainUser(user._id.toString());
+    } catch (error) {
+      console.error("Blockchain Registration Failed: ", error);
+    }
 
     // 6. Generate JWT (HttpOnly Cookie)
     const token = jwt.sign({ userId: user._id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });

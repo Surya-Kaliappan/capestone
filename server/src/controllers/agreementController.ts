@@ -1,6 +1,12 @@
 import { Request, Response } from 'express';
 import { Agreement } from '../models/Agreement';
 import { Message } from '../models/Message'; 
+import { User } from '../models/User';
+import { decryptPrivateKey } from '../utils/crypto';
+import { ipfsSercive } from '../services/ipfsService';
+import { blockchainService } from '../services/blockchainService';
+import crypto from 'crypto';
+
 
 // Fetch all agreements for the current chat context
 export const getAgreementsByChat = async (req: Request, res: Response) => {
@@ -133,3 +139,113 @@ export const recallProposal = async (req: Request, res: Response) => {
       res.status(500).json({ message: "Recall failed" });
     }
 };
+
+export const signAgreement = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { sealingPassword } = req.body;
+    const userId = (req as any).user.userId;
+
+    // 1. Fetch Agreement and User
+    const agreement = await Agreement.findById(id);
+    const user = await User.findById(userId);
+
+    if (!agreement || agreement.status !== 'pending_signature') {
+      return res.status(400).json({ message: "Agreement not ready for signing" });
+    }
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // 2. Validate Sealing Password by attempting to decrypt Private Key
+    if (
+      !user.fabricIdentity ||
+      !user.fabricIdentity.encryptedPrivateKey ||
+      !user.fabricIdentity.iv ||
+      !user.fabricIdentity.salt ||
+      !user.fabricIdentity.authTag
+    ) {
+      return res.status(400).json({ message: "User fabric identity not configured for signing" });
+    }
+
+    let privateKeyPEM: string;
+    try {
+      privateKeyPEM = decryptPrivateKey(
+        user.fabricIdentity.encryptedPrivateKey,
+        sealingPassword,
+        user.fabricIdentity.iv,
+        user.fabricIdentity.salt,
+        user.fabricIdentity.authTag
+      );
+    } catch (err) {
+      return res.status(401).json({ message: "Invalid sealing password. Identity verification failed." });
+    }
+
+    // 3. Prevent Double Signing
+    const alreadySigned = agreement.signatures.find((s: any) => s.signerId.toString() === userId);
+    if (alreadySigned) return res.status(400).json({ message: "You have already signed this agreement." });
+
+    // 4. Generate Content Hash (Fingerprint)
+    const contentHash = crypto.createHash('sha256').update(agreement.content).digest('hex');
+
+    // 5. Add Local Signature Record
+    agreement.signatures.push({
+      signerId: userId,
+      signedAt: new Date(),
+      integrityHash: contentHash
+    });
+
+    // 6. If this is the FINAL signature, commit to Blockchain & IPFS
+    if (agreement.signatures.length === 2) {
+
+      // A. Upload to IPFS
+      const cid = await ipfsSercive.uploadContent(agreement.content);
+
+      await blockchainService.recordAgreement(
+        userId,
+        agreement.agreementId,
+        cid,
+        contentHash,
+        agreement.signatures,
+        agreement.version.toString(),
+        agreement.parentId ? agreement.parentId.toString() : ""
+      );
+
+      agreement.status = 'active';
+      agreement.content = "[SEALED ON BLOCKCHAIN]";
+      agreement.signatures = [];
+      
+      // Create final system notification
+      await Message.create({
+        sender: userId,
+        recipient: agreement.initiator.toString() === userId ? agreement.recipient : agreement.initiator,
+        content: `Signed & Sealed: ${agreement.title}`,
+        messageType: 'agreement_proposal'
+      });
+    }
+
+    await agreement.save();
+    res.status(200).json({ success: true, agreement });
+
+  } catch (error) {
+    console.error("Signing Error:", error);
+    res.status(500).json({ message: "Failed to finalize agreement on-chain" });
+  }
+};
+
+export const getAgreementContent = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const agreement = await Agreement.findById(id);
+    if (!agreement) return res.status(404).json({ message: "Agreement not found" });
+
+    const ledgerData = await blockchainService.queryAgreement(
+      (req as any).user.userId,
+      agreement.agreementId,
+    );
+    const content = await ipfsSercive.retrieveContent(ledgerData.ipfsCid);
+    res.json({ content });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch from IPFS" });
+  }
+};
+
+//QmWa85HYyU6G5QMU6x6meiNWmvKKcp1Vms7AiS2kGNTGz1
