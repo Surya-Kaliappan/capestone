@@ -7,6 +7,7 @@ import {
 import { useAppStore } from '../../store';
 import { api } from '../../lib/api';
 import { useSocket } from '../../context/SocketContext';
+import { decryptPrivateKeyClient, signContentClient } from '../../lib/cryptoClient';
 
 // Define Prop Interface
 interface AgreementDrawerProps {
@@ -89,7 +90,7 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
   const handleViewAgreement = async (ag: any) => {
     setIsEditingId(ag._id);
     setDraftTitle(ag.title);
-    if(ag.status === 'active'){
+    if(ag.status === 'active' || ag.status === 'archived'){
       setFetchingIPFS(true);
       try {
         const res = await api.get(`/agreements/${ag._id}/content`);
@@ -126,7 +127,28 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
     }
 
     try {
-      if (isEditingId) {
+      if(isEditingId && currentAg?.status === 'active'){
+        const res = await api.post(`/agreements/${isEditingId}/amend`, { 
+          content: draftContent 
+        });
+
+        if (tempId && onAgreementMessage && res.data.systemMessage) {
+            onAgreementMessage({
+                ...res.data.systemMessage,
+                tempId: tempId,
+                isSelf: true,
+                status: 'sent' // Updates Clock to Tick ✅
+            }, true); // true = Update existing
+        }
+        
+        if (socket && res.data.systemMessage) {
+          socket.emit("sendMessage", {
+            recipientId: selectedChatUser.id,
+            message: res.data.systemMessage.content,
+            messageType: 'agreement_proposal'
+          });
+        }
+      } else if (isEditingId) {
         await api.put(`/agreements/${isEditingId}/update`, { title: draftTitle, content: draftContent });
       } else {
         // Create new proposal
@@ -153,12 +175,14 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
       }
       setIsDrafting(false);
       fetchAgreements();
-    } catch (err) { 
+    } catch (err: any) { 
         console.error(err);
         // --- 3. ERROR HANDLING ---
         if (tempId && onAgreementMessage) {
             onAgreementMessage({ tempId, status: 'failed' }, true);
         }
+        const errMsg = err.response?.data?.message || "Failed to submit version. The agreement may have already been take over by other party.";
+        alert(`⚠️ Action Failed: ${errMsg}`);
     }
     finally { setActionLoading(null); }
   };
@@ -207,11 +231,24 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
     if (!sealingPassword.trim() || !isEditingId) return;
     setActionLoading('sign');
     try {
-      await api.post(`/agreements/${isEditingId}/sign`, { sealingPassword });
+      const vaultRes = await api.get('/auth/vault');
+      const { encryptedPrivateKey, iv, salt, authTag } = vaultRes.data;
+
+      const privateKeyPem = decryptPrivateKeyClient(
+        encryptedPrivateKey,
+        sealingPassword,
+        iv,
+        salt,
+        authTag
+      );
+      const signature = signContentClient(privateKeyPem, draftContent);
+      await api.post(`/agreements/${isEditingId}/sign`, { signature });
+
       setIsSigning(false);
       setSealingPassword('');
       fetchAgreements(); // Force reload to show "Active" status
     } catch (err: any) {
+      console.log(err);
       alert(err.response?.data?.message || "Signing failed");
     } finally {
       setActionLoading(null);
@@ -345,10 +382,26 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
                                </button>
                             )}
 
+                            {isReadOnly && currentAg?.status === 'active' && (
+                              <button 
+                                  onClick={() => setIsReadOnly(false)}
+                                  className="px-6 py-2.5 rounded-xl bg-blue-500 text-white font-bold text-xs flex items-center gap-2"
+                              >
+                                  <Plus size={16}/> Add Version
+                              </button>
+                            )}
+
                             {!isReadOnly && (
                                <button disabled={actionLoading === 'send'} onClick={handleSendProposal} className="px-6 md:px-10 py-2.5 rounded-xl bg-primary text-white font-bold text-sm shadow-xl shadow-primary/30 flex items-center gap-2 active:scale-95 transition-all">
                                   {actionLoading === 'send' ? <Loader2 className="animate-spin" size={14}/> : <Send size={14} />} 
-                                  {isEditingId ? 'Resubmit Proposal' : 'Send Proposal'}
+                                  {currentAg?.status === 'active' ? `Submit Version ${currentAg.version + 1}` : 'Send Proposal'}
+                               </button>
+                            )}
+
+                            {!isReadOnly && currentAg?.status === 'proposed' && (
+                               <button disabled={actionLoading === 'send'} onClick={handleSendProposal} className="px-6 md:px-10 py-2.5 rounded-xl bg-primary text-white font-bold text-sm shadow-xl shadow-primary/30 flex items-center gap-2 active:scale-95 transition-all">
+                                  {actionLoading === 'send' ? <Loader2 className="animate-spin" size={14}/> : <Send size={14} />} 
+                                  {isEditingId && 'Resubmit Proposal'}
                                </button>
                             )}
 

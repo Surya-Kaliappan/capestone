@@ -303,7 +303,7 @@ export default function ChatArea({
                         const isAgreementLink = msg.messageType === 'agreement_proposal';
 
                         return (
-                            <div key={msg._id || msg.tempId} className="w-full">
+                            <div key={msg._id} className="w-full">
                                 <div className={`flex w-full ${msg.isSelf ? 'justify-end' : 'justify-start'}`}>
                                     {isAgreementLink ? (
                                         /* STYLED AGREEMENT LINK */

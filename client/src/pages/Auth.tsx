@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAppStore } from '../store';
 import { api } from '../lib/api';
+import { generateIdentityClient, encryptPrivateKeyClient } from '../lib/cryptoClient';
 import { ShieldCheck, Lock, Mail, User, ArrowRight, Loader2 } from 'lucide-react';
 
 // Configure Axios Base URL
@@ -22,6 +23,24 @@ export default function Auth() {
   const [name, setName] = useState('');
   const [sealingPassword, setSealingPassword] = useState('');
 
+  const signUpProcess = () => {
+    const {publicKeyPem, privateKeyPem} = generateIdentityClient();
+    const encryptedDetails = encryptPrivateKeyClient(privateKeyPem, sealingPassword);
+
+    return {
+      email,
+      password, // Login password
+      name,
+      clientIdentity: {
+        publicKey: publicKeyPem,
+        encryptedPrivateKey: encryptedDetails.encryptedData,
+        iv: encryptedDetails.iv,
+        salt: encryptedDetails.salt,
+        authTag: encryptedDetails.authTag
+      }
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -31,7 +50,7 @@ export default function Auth() {
       const endpoint = isLogin ? '/auth/login' : '/auth/signup';
       const payload = isLogin 
         ? { email, password } 
-        : { email, password, name, sealingPassword };
+        : signUpProcess();
 
       const res = await api.post(endpoint, payload);
       
@@ -39,6 +58,7 @@ export default function Auth() {
       setCurrentUser(res.data.user);
 
     } catch (err: any) {
+      console.log(err);
       setError(err.response?.data?.message || "Something went wrong");
     } finally {
       setIsLoading(false);

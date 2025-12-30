@@ -3,7 +3,8 @@ import { authenticateToken } from '../middlewares/authMiddleware';
 import { 
     createProposal, updateProposal, acceptProposal, recallProposal, getAgreementsByChat, 
     signAgreement,
-    getAgreementContent
+    getAgreementContent,
+    amendAgreement
 } from '../controllers/agreementController';
 
 const router = express.Router();
@@ -16,5 +17,6 @@ router.post('/:id/recall', authenticateToken, recallProposal);
 
 router.post('/:id/sign', authenticateToken, signAgreement);
 router.get('/:id/content', authenticateToken, getAgreementContent);
+router.post('/:id/amend', authenticateToken, amendAgreement);
 
 export default router;

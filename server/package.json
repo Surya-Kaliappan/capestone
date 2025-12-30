@@ -26,6 +26,7 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.1",
     "multer": "^2.0.2",
+    "node-forge": "^1.3.3",
     "socket.io": "^4.8.1",
     "soket.io": "^0.0.1-security",
     "zors": "^0.1.6"
@@ -37,6 +38,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.0.0",
     "@types/node": "^24.10.1",
+    "@types/node-forge": "^1.3.14",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

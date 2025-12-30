@@ -1,10 +1,10 @@
 import mongoose from "mongoose";
 
 const agreementSchema = new mongoose.Schema({
-  agreementId: { type: String, required: true }, // Shared across V1, V2, etc.
+  agreementId: { type: String, required: true, unique: true },
   version: { type: Number, required: true, default: 1 },
 
-  parentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Agreement', default: null },
+  parentId: { type: String, default: "ORIGINAL" },
   
   initiator: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   recipient: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },

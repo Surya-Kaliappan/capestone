@@ -2,43 +2,28 @@ import { Request, Response } from 'express';
 import argon2 from 'argon2';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/User';
-import { generateIdentity, encryptPrivateKey } from '../utils/crypto';
 import { registerBlockchainUser } from '../services/blockchainAuth';
 
 const JWT_SECRET = process.env.JWT_SECRET || "super_secret_jwt_key_12345";
 
 export const signup = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password, name, sealingPassword } = req.body;
+    const { email, password, name, clientIdentity } = req.body; 
+    // clientIdentity contains { publicKey, encryptedPrivateKey, iv, salt, authTag }
 
-    // 1. Check if user exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       res.status(400).json({ message: "User already exists" });
       return;
     }
 
-    // 2. Hash the LOGIN Password (Argon2)
     const hashedPassword = await argon2.hash(password);
 
-    // 3. Generate Digital Identity (The "High Tech" Part)
-    const { publicKey, privateKey } = generateIdentity();
-
-    // 4. Encrypt the Private Key with the SEALING Password
-    const encryptedIdentity = encryptPrivateKey(privateKey, sealingPassword);
-
-    // 5. Create User
     const user = await User.create({
       email,
       password: hashedPassword,
       name,
-      fabricIdentity: {
-        publicKey: publicKey,
-        encryptedPrivateKey: encryptedIdentity.encryptedData,
-        iv: encryptedIdentity.iv,
-        salt: encryptedIdentity.salt,
-        authTag: encryptedIdentity.authTag
-      }
+      fabricIdentity: clientIdentity // Store directly
     });
 
     console.log(`[Auth] Registering user ${user._id} on Fabric CA...`);
@@ -130,5 +115,16 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
 
   } catch (error) {
     res.status(401).json({ message: "Invalid token" });
+  }
+};
+
+export const getMyVault = async (req: Request, res: Response) => {
+  try {
+    const user = await User.findById((req as any).user.userId);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    
+    res.json(user.fabricIdentity);
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching vault" });
   }
 };
