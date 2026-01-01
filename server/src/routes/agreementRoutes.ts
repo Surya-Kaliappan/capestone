@@ -4,7 +4,8 @@ import {
     createProposal, updateProposal, acceptProposal, recallProposal, getAgreementsByChat, 
     signAgreement,
     getAgreementContent,
-    amendAgreement
+    amendAgreement,
+    verifyPublicAgreement
 } from '../controllers/agreementController';
 
 const router = express.Router();
@@ -18,5 +19,7 @@ router.post('/:id/recall', authenticateToken, recallProposal);
 router.post('/:id/sign', authenticateToken, signAgreement);
 router.get('/:id/content', authenticateToken, getAgreementContent);
 router.post('/:id/amend', authenticateToken, amendAgreement);
+
+router.get('/verify/:agreementId', verifyPublicAgreement);
 
 export default router;

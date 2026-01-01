@@ -5,6 +5,7 @@ import { User } from '../models/User';
 import { ipfsSercive } from '../services/ipfsService';
 import { blockchainService } from '../services/blockchainService';
 import crypto from 'crypto';
+import { decryptContent, encryptContent } from '../utils/crypto';
 const forge = require('node-forge');
 // Fetch all agreements for the current chat context
 export const getAgreementsByChat = async (req: Request, res: Response) => {
@@ -172,14 +173,17 @@ export const signAgreement = async (req: Request, res: Response) => {
     agreement.signatures.push({
       signerId: userId,
       signedAt: new Date(),
-      integrityHash: contentHash
+      signatureValue: signature
     });
 
     // 6. If this is the FINAL signature, commit to Blockchain & IPFS
     if (agreement.signatures.length === 2) {
 
+      const encrypted = encryptContent(agreement.content, agreement.agreementId, contentHash);
+      const ipfsPayload = JSON.stringify(encrypted);
+
       // A. Upload to IPFS
-      const cid = await ipfsSercive.uploadContent(agreement.content);
+      const cid = await ipfsSercive.uploadContent(ipfsPayload);
 
       await blockchainService.recordAgreement(
         userId,
@@ -223,8 +227,11 @@ export const getAgreementContent = async (req: Request, res: Response) => {
       (req as any).user.userId,
       agreement.agreementId,
     );
-    const content = await ipfsSercive.retrieveContent(ledgerData.ipfsCid);
-    res.json({ content });
+    const rawIpfsData = await ipfsSercive.retrieveContent(ledgerData.ipfsCid);
+    const {encryptedBlob, iv, authTag} = JSON.parse(rawIpfsData);
+
+    const content = decryptContent(encryptedBlob, agreement.agreementId, ledgerData.contentHash, iv, authTag);
+    res.json({ content, verified: true });
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch from IPFS" });
   }
@@ -279,3 +286,69 @@ export const amendAgreement = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Failed to create amendment version" });
   }
 };
+
+export const verifyPublicAgreement = async (req: Request, res: Response) => {
+  try {
+    const {agreementId} = req.params;
+
+    console.log(`[Verify] Starting autopsy for : ${agreementId}`);
+
+    let ledgerData;
+    try {
+      ledgerData = await blockchainService.queryAgreement('admin', agreementId);
+    } catch (error) {
+      return res.status(404).json({message: "Agreement not found on the ledger"});
+    }
+    // console.log("ledgerData : ",ledgerData);
+    const rawIpfsData = await ipfsSercive.retrieveContent(ledgerData.ipfsCid);
+    const { encryptedBlob, iv, authTag } = JSON.parse(rawIpfsData);
+    // console.log("Ipfs : ",rawIpfsData);
+    let decryptedContent = "";
+    try {
+      decryptedContent = decryptContent(encryptedBlob, agreementId, ledgerData.contentHash, iv, authTag);
+    } catch (error) {
+      return res.status(400).json({verified: false, error: "Decryption Failed: The content on IPFS does not match the Blockchain Hash"});
+    }
+
+    const freshHash = crypto.createHash('sha256').update(decryptedContent).digest('hex');
+    const isContentTamperFree = (freshHash === ledgerData.contentHash);
+
+    const verificationResults = await Promise.all(ledgerData.signatures.map(async (sig: any) => {
+      const signer = await User.findById(sig.signerId);
+      if(!signer || !signer.fabricIdentity){
+        return {signerId: sig.signerId, name: "Unknow User", valid: false, error: "Public key nor found"};
+      }
+
+      try {
+        const publicKey = forge.pki.publicKeyFromPem(signer.fabricIdentity.publicKey);
+        const signatureBytes = forge.util.hexToBytes(sig.signatureValue);
+        const digestBytes = forge.util.hexToBytes(ledgerData.contentHash);
+
+        const isValid = publicKey.verify(digestBytes, signatureBytes);
+
+        return {
+          signerId: sig.signerId,
+          name: signer.name,
+          email: signer.email,
+          signedAt: sig.signedAt,
+          valid: isValid
+        };
+      } catch (error) {
+        return {signerId: sig.signerId, name: signer.name, valid: false, error: "Crypto Verification Error"};
+      }
+    }));
+
+    res.json({
+        success: true,
+        agreementId: ledgerData.agreementId,
+        version: ledgerData.version,
+        isContentTamperFree,
+        content: decryptedContent,
+        signatures: verificationResults,
+        blockchainTimestamp: ledgerData.createdAt
+    });
+  } catch (error) {
+    console.error("Verification Error:", error);
+    res.status(500).json({ message: "Verification process failed due to internal error" });
+  }
+}

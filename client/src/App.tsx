@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAppStore } from './store';
 import Dashboard from './pages/Dashboard';
 import Auth from './pages/Auth';
+import VerificationPage from './pages/VerificationPage'
 import { api } from './lib/api';
 import { Loader2 } from 'lucide-react';
 
@@ -9,8 +10,14 @@ function App() {
   const { currentUser, setCurrentUser } = useAppStore();
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
+  const isPublicRoute = window.location.pathname.startsWith('/verify');
+
   useEffect(() => {
     const checkAuth = async () => {
+      if (isPublicRoute) {
+          setIsCheckingAuth(false);
+          return;
+      }
       try {
         const res = await api.get('/auth/me');
         setCurrentUser(res.data.user);
@@ -24,7 +31,7 @@ function App() {
     };
 
     checkAuth();
-  }, [setCurrentUser]);
+  }, [setCurrentUser, isPublicRoute]);
 
   if (isCheckingAuth) {
     return (
@@ -32,6 +39,10 @@ function App() {
         <Loader2 className="animate-spin text-blue-500" size={48} />
       </div>
     );
+  }
+
+  if (isPublicRoute) {
+    return <VerificationPage />;
   }
 
   if (!currentUser) {
