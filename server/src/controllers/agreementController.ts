@@ -6,6 +6,7 @@ import { ipfsSercive } from '../services/ipfsService';
 import { blockchainService } from '../services/blockchainService';
 import crypto from 'crypto';
 import { decryptContent, encryptContent } from '../utils/crypto';
+import { generateAgreementPDF } from '../utils/pdfGenerator';
 const forge = require('node-forge');
 // Fetch all agreements for the current chat context
 export const getAgreementsByChat = async (req: Request, res: Response) => {
@@ -351,4 +352,58 @@ export const verifyPublicAgreement = async (req: Request, res: Response) => {
     console.error("Verification Error:", error);
     res.status(500).json({ message: "Verification process failed due to internal error" });
   }
-}
+};
+
+export const downloadAgreementPDF = async (req: Request, res: Response) => {
+  try {
+    const { agreementId } = req.params;
+
+    // 1. Fetch full Database record
+    const agreementDoc = await Agreement.findOne({ agreementId });
+    if (!agreementDoc) return res.status(404).json({ message: "Agreement not found" });
+
+    const initiator = await User.findById(agreementDoc.initiator);
+    const recipient = await User.findById(agreementDoc.recipient);
+
+    // 2. Fetch Blockchain Proof
+    const ledgerData = await blockchainService.queryAgreement('admin', agreementId);
+    
+    // 3. Decrypt Content
+    const rawIpfsData = await ipfsSercive.retrieveContent(ledgerData.ipfsCid);
+    const { encryptedBlob, iv, authTag } = JSON.parse(rawIpfsData);
+    const decryptedContent = decryptContent(encryptedBlob, agreementId, ledgerData.contentHash, iv, authTag);
+
+    // 4. Assemble Report Data
+    const reportData = {
+      meta: {
+          id: ledgerData.agreementId,
+          title: agreementDoc.title,
+          version: ledgerData.version,
+          status: agreementDoc.status, // Passes "active" or "archived"
+          parentId: (agreementDoc.parentId && agreementDoc.parentId !== 'ORIGINAL') ? agreementDoc.parentId : null,
+          ipfsCid: ledgerData.ipfsCid,
+          contentHash: ledgerData.contentHash,
+          createdAt: new Date(ledgerData.createdAt.seconds.low * 1000),
+      },
+      parties: {
+          partyA: { name: initiator?.name, email: initiator?.email, id: initiator?._id },
+          partyB: { name: recipient?.name, email: recipient?.email, id: recipient?._id }
+      },
+      content: decryptedContent,
+      signatures: ledgerData.signatures // Includes the verification proofs
+    };
+
+    const pdfBuffer = await generateAgreementPDF(reportData);
+
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${agreementDoc.title.replace(/\s+/g, '_')}_SecureReport.pdf"`,
+      'Content-Length': pdfBuffer.length
+    });
+
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error("PDF Export Error:", error);
+    res.status(500).json({ message: "Failed to generate official PDF report" });
+  }
+};

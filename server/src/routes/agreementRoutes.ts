@@ -5,7 +5,8 @@ import {
     signAgreement,
     getAgreementContent,
     amendAgreement,
-    verifyPublicAgreement
+    verifyPublicAgreement,
+    downloadAgreementPDF
 } from '../controllers/agreementController';
 
 const router = express.Router();
@@ -21,5 +22,6 @@ router.get('/:id/content', authenticateToken, getAgreementContent);
 router.post('/:id/amend', authenticateToken, amendAgreement);
 
 router.get('/verify/:agreementId', verifyPublicAgreement);
+router.get('/verify/:agreementId/download', downloadAgreementPDF);
 
 export default router;

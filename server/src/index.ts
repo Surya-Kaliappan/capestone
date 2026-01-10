@@ -18,7 +18,7 @@ const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "mongodb://127.0.0.1:27017/secure-agreement-app";
 
 app.use(cors({
-    origin: "http://10.224.32.235:5173",
+    origin: "http://10.59.24.235:5173",
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"]
 }));
@@ -35,7 +35,7 @@ app.use('/api/agreements', agreementRoutes);
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "http://10.224.32.235:5173",
+    origin: "http://10.59.24.235:5173",
     methods: ["GET", "POST"],
     credentials: true
   }

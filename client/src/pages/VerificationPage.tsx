@@ -2,10 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { 
   CheckCircle, XCircle, ShieldCheck, FileText, 
-  Calendar, Search, Lock, Server, Sun, Moon,
+  Calendar, Search, Lock, Server, Sun, Moon, FileDown,
   Fingerprint, Hash, Globe, Cpu, User, Mail, X, Activity
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { SERVER_URL } from '../config';
 
 // --- Interfaces ---
 interface SignatureProof {
@@ -88,6 +89,15 @@ export default function VerificationPage() {
     e.preventDefault();
     const input = (e.target as any).search.value;
     if(input) window.location.href = `/verify/${input}`;
+  };
+
+  const handleDownload = async () => {
+    try {
+      // Direct browser download triggers
+      window.open(`${SERVER_URL || 'http://localhost:3000'}/api/agreements/verify/${agreementId}/download`, '_blank');
+    } catch (err) {
+      alert("Failed to download report");
+    }
   };
 
   // --- 1. LOADING STATE ---
@@ -208,12 +218,19 @@ export default function VerificationPage() {
                 </div>
 
                 <div className={`flex flex-col md:items-end gap-1 p-3 rounded-xl border w-fit md:w-auto ${isDark ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-100/50 border-slate-200'}`}>
-                    {/* <div> */}
                         <div className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                             <Calendar size={12}/> Validated At
                         </div>
                         <div className="font-mono text-sm md:text-lg font-bold">{new Date().toLocaleString()}</div>
                 </div>
+
+                {/* DOWNLOAD BUTTON */}
+                <button 
+                    onClick={handleDownload}
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold shadow-lg shadow-blue-500/30 hover:shadow-blue-500/50 hover:scale-105 transition-all text-sm md:text-base"
+                >
+                    <FileDown size={18} /> Download Official PDF
+                </button>
             </div>
          </div>
       </header>
