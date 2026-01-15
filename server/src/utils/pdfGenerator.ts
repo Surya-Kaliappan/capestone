@@ -94,17 +94,29 @@ export const generateAgreementPDF = (data: any): Promise<Buffer> => {
 
       // --- FOOTER ---
       footer: (currentPage, pageCount) => ({
-        margin: [70, 10, 40, 0],
+        margin: [70, 12, 40, 12], // slightly more bottom margin for cleaner look
         columns: [
-          { text: `Page ${currentPage} of ${pageCount}`, fontSize: 8, color: theme.lightText },
-          { 
-             text: `HASH: ${data.meta.contentHash}`, 
-             fontSize: 7, 
-             font: 'Courier', 
-             color: theme.lightText,
-             alignment: 'right', 
+          // Left: Full hash (60% width, left-aligned, can wrap)
+          {
+            width: '60%',
+            text: `${data.meta.contentHash}`,
+            fontSize: 7,
+            font: 'Courier',
+            color: theme.lightText,
+            alignment: 'left',
+            lineHeight: 1.1,           // better line spacing if wraps
+            margin: [0, 2, 0, 0],      // tiny top buffer
           },
-        ]
+
+          // Right: Page number (40% width, right-aligned)
+          {
+            width: '40%',
+            text: `Page ${currentPage} of ${pageCount}`,
+            fontSize: 8,
+            color: theme.lightText,
+            alignment: 'right',
+          },
+        ],
       }),
 
       content: [
@@ -209,11 +221,11 @@ export const generateAgreementPDF = (data: any): Promise<Buffer> => {
                     { text: 'INITIATOR (PARTY A)', color: theme.accent, fontSize: 7, bold: true },
                     { text: data.parties.partyA.name, color: theme.text, fontSize: 12, bold: true, margin: [0, 2, 0, 10] },
                     
-                    { text: 'Email:', fontSize: 7, color: theme.lightText },
-                    { text: data.parties.partyA.email, fontSize: 9, margin: [0, 0, 0, 8] },
+                    { text: 'Email:', fontSize: 8, color: theme.lightText },
+                    { text: data.parties.partyA.email, fontSize: 9, bold: true, margin: [2, 3, 0, 8] },
                     
-                    { text: 'ID:', fontSize: 7, color: theme.lightText },
-                    { text: data.parties.partyA.id, fontSize: 8, font: 'Courier', bold: true, color: theme.text, margin: [0, 0, 0, 15] },
+                    { text: 'Timestamp:', fontSize: 8, color: theme.lightText },
+                    { text: new Date(getSigForParty(data.parties.partyA.id).signedAt).toUTCString(), fontSize: 9, bold: true, color: theme.text, margin: [2, 3, 0, 15] },
                     
                     { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 215, y2: 0, lineWidth: 1, lineColor: theme.border }], margin: [0, 0, 0, 10] },
                     
@@ -240,11 +252,11 @@ export const generateAgreementPDF = (data: any): Promise<Buffer> => {
                     { text: 'RECIPIENT (PARTY B)', color: theme.accent, fontSize: 7, bold: true },
                     { text: data.parties.partyB.name, color: theme.text, fontSize: 12, bold: true, margin: [0, 2, 0, 10] },
                     
-                    { text: 'Email:', fontSize: 7, color: theme.lightText },
-                    { text: data.parties.partyB.email, fontSize: 9, margin: [0, 0, 0, 8] },
+                    { text: 'Email:', fontSize: 8, color: theme.lightText },
+                    { text: data.parties.partyB.email, fontSize: 9, bold: true, margin: [2, 3, 0, 8] },
                     
-                    { text: 'ID:', fontSize: 7, color: theme.lightText },
-                    { text: data.parties.partyB.id, fontSize: 8, font: 'Courier', bold: true, color: theme.text, margin: [0, 0, 0, 15] },
+                    { text: 'Timestamp:', fontSize: 8, color: theme.lightText },
+                    { text: new Date(getSigForParty(data.parties.partyB.id).signedAt).toUTCString(), fontSize: 9, bold: true, color: theme.text, margin: [2, 3, 0, 15] },
                     
                     { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 215, y2: 0, lineWidth: 1, lineColor: theme.border }], margin: [0, 0, 0, 10] },
                     

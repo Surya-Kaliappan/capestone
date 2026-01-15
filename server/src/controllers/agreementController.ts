@@ -342,6 +342,7 @@ export const verifyPublicAgreement = async (req: Request, res: Response) => {
     res.json({
         success: true,
         agreementId: ledgerData.agreementId,
+        parentId: ledgerData.parentId,
         version: ledgerData.version,
         isContentTamperFree,
         content: decryptedContent,
