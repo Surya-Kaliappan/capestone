@@ -349,7 +349,7 @@ export default function AgreementDrawer({ onAgreementMessage }: AgreementDrawerP
                       <div className={`flex-1 overflow-y-auto p-4 md:p-8 ${isDark ? 'bg-[#0b1121]' : 'bg-slate-100'}`}>
                         <div className={`max-w-4xl mx-auto min-h-full shadow-lg rounded-2xl flex flex-col ${isDark ? 'bg-[#1e293b] text-slate-300' : 'bg-white text-slate-800'}`}>
                           <div className="px-6 py-4 border-b border-dashed border-opacity-10 flex justify-between items-center opacity-40 text-[10px] font-mono tracking-widest">
-                              <span className="truncate">#{currentAg.agreementId}</span>
+                              <span className="truncate">#{currentAg?.agreementId}</span>
                               {isReadOnly && <span className="flex items-center gap-1 shrink-0"><AlertCircle size={10}/> REVIEW MODE</span>}
                           </div>
                           

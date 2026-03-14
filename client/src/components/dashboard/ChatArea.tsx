@@ -317,8 +317,8 @@ export default function ChatArea({
                                                 <FileText size={20}/>
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className="text-xs font-bold opacity-60 uppercase mb-0.5">Contract Proposal</p>
-                                                <p className="text-sm font-bold truncate">{msg.content.replace('📜 New Agreement Proposal: ', '')}</p>
+                                                <p className="text-xs font-bold opacity-60 uppercase mb-0.5">Contract</p>
+                                                <p className="text-sm font-bold truncate">{msg.content.replace('New Agreement Proposal: ', '')}</p>
                                             </div>
                                         </button>
                                     ) : (
