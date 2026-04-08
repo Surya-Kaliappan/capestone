@@ -8,7 +8,10 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-server/src/uploads
+uploads
+wallet
+connection-org1.json
+.env
 dist
 dist-ssr
 *.local

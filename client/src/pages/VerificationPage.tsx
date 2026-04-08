@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { 
   CheckCircle, XCircle, ShieldCheck, FileText, 
   Calendar, Search, Lock, Server, Sun, Moon, FileDown,
-  Fingerprint, Hash, Globe, Cpu, User, Mail, X, Activity,
+  Fingerprint, Globe, Cpu, User, Mail, X,
   AlertTriangle, ExternalLink
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';

@@ -42,7 +42,7 @@ export const generateAgreementPDF = (data: any): Promise<Buffer> => {
     };
 
     // Direct Download Link
-    const downloadUrl = `${process.env.APP_URL || 'http://localhost:3000'}/api/agreements/verify/${data.meta.id}/download`;
+    const downloadUrl = `${process.env.BACKEND || 'http://localhost:3000'}/api/agreements/verify/${data.meta.id}/download`;
 
     const docDefinition: TDocumentDefinitions = {
       pageSize: 'A4',

@@ -18,7 +18,7 @@ const PORT = process.env.PORT || 3000;
 const DATABASE_URL = process.env.DATABASE_URL || "mongodb://127.0.0.1:27017/secure-agreement-app";
 
 app.use(cors({
-    origin: "http://localhost:5173",
+    origin: process.env.FRONTEND,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"]
 }));
@@ -35,7 +35,7 @@ app.use('/api/agreements', agreementRoutes);
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "http://localhost:5173",
+    origin: process.env.FRONTEND,
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -55,7 +55,7 @@ io.on("connection", (socket) => {
 
   if (userId && userId !== "undefined") {
     userSocketMap.set(userId, {socketId: socket.id, status: 'online'});
-    console.log(`✅ User Online: ${userId} (Socket: ${socket.id})`);
+    console.log(`User Online: ${userId} (Socket: ${socket.id})`);
     const onlineList = Array.from(userSocketMap.entries()).map(([id, data]) => ({
       id,
       status: data.status
@@ -123,9 +123,9 @@ io.on("connection", (socket) => {
 
 mongoose.connect(DATABASE_URL)
     .then(() => {
-        console.log("✅ MongoDB Connected Successfully");
+        console.log("MongoDB Connected Successfully");
         server.listen(PORT, () => {
-            console.log(`🚀 Server running at http://localhost:${PORT}`);
+            console.log(`Server running at port ${PORT}`);
         });
     })
-    .catch((err) => console.error("❌ Database Connection Error:", err));
+    .catch((err) => console.error("Database Connection Error:", err));
